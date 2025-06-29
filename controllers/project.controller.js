@@ -33,6 +33,8 @@ projectController.createProject = async (req, res) => {
 
     // Generate project code
     const projectCode = await generateProjectCode(name);
+const totalCost = (ratePerSquareFoot || 0) * (totalCoverageArea || 0);
+const totalLabourCost = (labouRate || 0) * (totalCoverageArea || 0);
 
     const newProject = new projectModel({
       name,

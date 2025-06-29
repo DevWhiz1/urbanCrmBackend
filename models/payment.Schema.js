@@ -1,3 +1,5 @@
+const mongoose = require('mongoose');
+
 const paymentSchema = new mongoose.Schema({
   project: {
     type: mongoose.Schema.Types.ObjectId,

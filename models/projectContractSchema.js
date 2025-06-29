@@ -1,3 +1,6 @@
+const mongoose = require('mongoose');
+
+
 const projectContractSchema = new mongoose.Schema({
   project: { 
     type: mongoose.Schema.Types.ObjectId, 
@@ -20,7 +23,9 @@ const projectContractSchema = new mongoose.Schema({
     ref: 'Payment'
   }],
   // Status
-  isTerminated: { type: Boolean, default: false }
+  isTerminated: { type: Boolean, default: false },
+  Description: { type: String },
+
 }, { timestamps: true });
 
 const ProjectContract = mongoose.model('ProjectContract', projectContractSchema);

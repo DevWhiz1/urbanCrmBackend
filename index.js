@@ -4,9 +4,11 @@ const dotenv = require('dotenv');
 const connectDB = require('./config/db');
 dotenv.config();
 const authRoute = require('./routes/auth.route');
-// const projectRoute = require('./routes/project.route');
+const projectRoute = require('./routes/project.route');
 const contractor = require('./routes/contractor.route');
-// const projectContractRoute = require('./routes/projectContract.route');
+const projectContractRoute = require('./routes/projectContract.route');
+const clientRoute = require('./routes/client.route');
+const paymentRoute = require('./routes/payment.route');
 
 const userRoute = require('./routes/users.route');
 const app = express();
@@ -26,9 +28,11 @@ app.get('/', (req, res) => {
 });
 app.use('/api/auth', authRoute);
 app.use('/api/user', userRoute);
-// app.use('/api/project', projectRoute);
+app.use('/api/project', projectRoute);
 app.use('/api/contractor', contractor);
-// app.use('/api/project-contract', projectContractRoute);
+app.use('/api/client', clientRoute);
+app.use('/api/project-contract', projectContractRoute);
+app.use('/api/payment', paymentRoute);
 
 app.listen(PORT, () => {
   console.log(`Server is listening on http://localhost:${PORT}`);

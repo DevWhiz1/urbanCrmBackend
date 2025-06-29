@@ -28,10 +28,10 @@ const projectSchema = new mongoose.Schema({
   startDate: { type: Date },
   estimatedDuration: { type: Date },
   actualCompletionDate: { type: Date },
-  customer: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  customer: { type: mongoose.Schema.Types.ObjectId, ref: 'Client', required: true },
     contractors: [{ 
         type: mongoose.Schema.Types.ObjectId, 
-        ref: 'User' 
+        ref: 'Contractor' 
     }],
   materials: [{ type: Schema.Types.ObjectId, ref: 'Material' }],
   // Project Details

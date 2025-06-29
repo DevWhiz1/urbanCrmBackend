@@ -1,12 +1,11 @@
-const express = require('express');
-const projectContractController = require('../controllers/projectContract.controller');
+const express = require("express");
+const projectContractController = require("../controllers/projectContract.controller");
 const router = express.Router();
 
-
 // Create a new project contract
-router.post('/create-project-contract', projectContractController.createProjectContract);
+router.post("/create-project-contract", projectContractController.createProjectContract);
 // Get all project contracts 
-// router.get('/get-all-project-contracts', projectContractController.getAllProjectContracts);
+router.get("/get-all-project-contracts", projectContractController.getAllProjectContracts);
 // // Get a single project contract    
 // router.get('/get-single-project-contract/:id', projectContractController.getSingleProjectContract);
 // // Update a project contract 

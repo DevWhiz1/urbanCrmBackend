@@ -20,5 +20,15 @@ contractorController.createContractor = async (req, res) => {
     });
   }
 };
-
+contractorController.getAllContractor = async (req, res) => {
+  try {
+    const clients = await Contractor.find().populate("user");
+    res.status(200).json({ data: clients });
+  } catch (error) {
+    res.status(500).json({
+      message: "Failed to fetch clients",
+      error: error.message,
+    });
+  }
+};
 module.exports = contractorController;
