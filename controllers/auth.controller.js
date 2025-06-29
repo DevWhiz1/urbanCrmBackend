@@ -53,45 +53,100 @@ authController.register = async (req, res) => {
   }
 };
 
+// authController.login = async (req, res) => {
+//   try {
+//      console.log('BODY RECEIVED:', req.body); 
+//     // const { email, password } = req.body.email ? req.body.email : req.body;
+//     // const user = await User.findOne({ email });
+//   const user = await User.findOne({ email: req.body.email }) 
+//     if (!user) {
+//       return res.status(400).json({ message: "Invalid credentials" });
+//     }
+
+//     const isMatch = await bcrypt.compare(password, user.password);
+//     if (!isMatch) {
+//       return res.status(400).json({ message: "Invalid credentials" });
+//     }
+
+//     const token = jwt.sign(
+//       { userId: user._id, email: user.email },
+//       config.secret,
+//       { expiresIn: '1h' }
+//     );
+
+//     user.accessToken = token;
+//     await user.save();
+
+//     res.json({
+//       message: "Login successful",
+//       token,
+//       user: {
+//         id: user._id,
+//         userName: user.userName,
+//         email: user.email,
+//         role: user.role
+//       }
+//     });
+//   } catch (error) {
+//     console.error(error);
+//     res.status(500).json({ message: "Server error" });
+//   }
+// };
+
 authController.login = async (req, res) => {
   try {
-     console.log('BODY RECEIVED:', req.body); 
-    const { email, password } = req.body.email ? req.body.email : req.body;
-    const user = await User.findOne({ email });
-  // const user = await User.findOne({ email: req.body.email }) 
-    if (!user) {
-      return res.status(400).json({ message: "Invalid credentials" });
+    const { email, password } = req.body;
+    console.log('BODY RECEIVED:', req.body);
+
+    // Check if both email and password are provided
+    if (!email || !password) {
+      return res.status(400).json({ message: 'Email and password are required' });
     }
 
+    // Find the user by email
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(400).json({ message: 'Invalid credentials' });
+    }
+
+    // Compare password
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
-      return res.status(400).json({ message: "Invalid credentials" });
+      return res.status(400).json({ message: 'Invalid credentials' });
     }
 
+    // Generate JWT
     const token = jwt.sign(
       { userId: user._id, email: user.email },
-      config.secret,
+      process.env.JWT_SECRET || 'devsecretkey',
       { expiresIn: '1h' }
     );
 
+    // Optionally store token
     user.accessToken = token;
     await user.save();
 
-    res.json({
-      message: "Login successful",
+    // Respond with user data and token
+    res.status(200).json({
+      message: 'Login successful',
       token,
       user: {
         id: user._id,
         userName: user.userName,
         email: user.email,
-        role: user.role
-      }
+        role: user.role,
+      },
     });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Server error" });
+    console.error('LOGIN ERROR:', error);
+    res.status(500).json({ message: 'Server error' });
   }
 };
+
+
+
+
+
 
 authController.verifyOtp = async (req, res) => {
   try {
