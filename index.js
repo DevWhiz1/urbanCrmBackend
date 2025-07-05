@@ -9,6 +9,7 @@ const contractor = require('./routes/contractor.route');
 const projectContractRoute = require('./routes/projectContract.route');
 const clientRoute = require('./routes/client.route');
 const paymentRoute = require('./routes/payment.route');
+const materialRoute = require('./routes/material.route');
 
 const userRoute = require('./routes/users.route');
 const app = express();
@@ -33,6 +34,7 @@ app.use('/api/contractor', contractor);
 app.use('/api/client', clientRoute);
 app.use('/api/project-contract', projectContractRoute);
 app.use('/api/payment', paymentRoute);
+app.use('/api/material', materialRoute);
 
 app.listen(PORT, () => {
   console.log(`Server is listening on http://localhost:${PORT}`);

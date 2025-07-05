@@ -9,12 +9,17 @@ const paymentSchema = new mongoose.Schema({
   contractor: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Contractor',
-    required: true
   },
   contract: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'ProjectContract'
   },
+  type: {
+  type: String,
+  enum: ['credit', 'debit'],
+  default: 'debit',
+  required: true
+},
   date: {
     type: Date,
     required: true,
@@ -40,14 +45,14 @@ const paymentSchema = new mongoose.Schema({
     enum: ['pending', 'paid', 'verified', 'disputed', 'rejected'],
     default: 'paid'
   },
-
+  
   // Audit Trail
   receiptPhoto: String, // URL
   notes: String,
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
-    required: true
+    // required: true
   }
 }, { 
   timestamps: true 

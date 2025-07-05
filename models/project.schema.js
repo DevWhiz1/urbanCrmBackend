@@ -25,6 +25,9 @@ const projectSchema = new mongoose.Schema({
   labouRate: { type: Number },
   totalLabourCost: { type: Number },
       // Timeline
+totalPaymentReceived: { 
+  type: Number,
+   default: 0 },
   startDate: { type: Date },
   estimatedDuration: { type: Date },
   actualCompletionDate: { type: Date },
