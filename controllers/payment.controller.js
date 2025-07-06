@@ -8,7 +8,7 @@ const Material = require('../models/material.schema');
 paymentController.createPayment = async (req, res) => {
   try {
     const paymentData = req.body;
-    // console.log("Payment Data:", paymentData);
+    console.log("Payment Data:", paymentData);
     const newPayment = new Payment(paymentData);
     const savedPayment = await newPayment.save();
     res.status(201).json({
@@ -20,7 +20,7 @@ paymentController.createPayment = async (req, res) => {
       message: "Failed to create payment",
       error: error.message,
     });
-    // console.error("Error creating payment:", error);
+    console.error("Error creating payment:", error);
   }
 };
 
@@ -123,14 +123,15 @@ paymentController.getAllPayments = async (req, res) => {
 // Add payment for a project
 paymentController.addPaymentForProject = async (req, res) => {
   try {
-    const { projectId } = req.params;
     const paymentData = req.body;
-    paymentData.project = projectId;
+    if (!paymentData.project) {
+      return res.status(400).json({ message: "Project ID is required in the body." });
+    }
     const newPayment = new Payment(paymentData);
     const savedPayment = await newPayment.save();
     // Update the project's totalPaymentReceived
     await Project.findByIdAndUpdate(
-      projectId,
+      paymentData.project,
       { $inc: { totalPaymentReceived: savedPayment.amount } },
       { new: true }
     );
