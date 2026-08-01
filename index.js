@@ -10,6 +10,8 @@ const projectContractRoute = require('./routes/projectContract.route');
 const clientRoute = require('./routes/client.route');
 const paymentRoute = require('./routes/payment.route');
 const materialRoute = require('./routes/material.route');
+const dashboardRoute = require('./routes/dashboard.route');
+const reportsRoute = require('./routes/reports.route');
 
 const userRoute = require('./routes/users.route');
 const app = express();
@@ -17,7 +19,7 @@ const PORT = process.env.PORT || 5000;
 
 // Middleware
 app.use(cors()); 
-app.use(express.json()); // <-- Add this line
+app.use(express.json()); 
 app.use(express.urlencoded({ extended: true }));
 connectDB();
 app.use((req, res, next) => {
@@ -35,6 +37,8 @@ app.use('/api/client', clientRoute);
 app.use('/api/project-contract', projectContractRoute);
 app.use('/api/payment', paymentRoute);
 app.use('/api/material', materialRoute);
+app.use('/api/dashboard', dashboardRoute);
+app.use('/api/reports', reportsRoute);
 
 app.listen(PORT, () => {
   console.log(`Server is listening on http://localhost:${PORT}`);
