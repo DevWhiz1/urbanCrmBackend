@@ -15,11 +15,11 @@ const paymentSchema = new mongoose.Schema({
     ref: 'ProjectContract'
   },
   type: {
-  type: String,
-  enum: ['credit', 'debit'],
-  default: 'debit',
-  required: true
-},
+    type: String,
+    enum: ['credit', 'debit'],
+    default: 'debit',
+    required: true
+  },
   date: {
     type: Date,
     required: true,
@@ -52,10 +52,10 @@ const paymentSchema = new mongoose.Schema({
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
-    // required: true
   }
 }, { 
   timestamps: true 
 });
+
 const Payment = mongoose.model('Payment', paymentSchema);
 module.exports = Payment;

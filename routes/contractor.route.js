@@ -1,6 +1,9 @@
 const express = require('express');
 const contractorController = require('../controllers/contractor.controller');
+const { authenticateToken } = require('../middleware/auth.middleware');
 const router = express.Router();
+
+router.use(authenticateToken);
 
 // Create a new contractor
 router.post('/create-contractor', contractorController.createContractor);

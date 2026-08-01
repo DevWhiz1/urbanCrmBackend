@@ -1,6 +1,9 @@
 const express = require("express");
 const projectContractController = require("../controllers/projectContract.controller");
+const { authenticateToken } = require("../middleware/auth.middleware");
 const router = express.Router();
+
+router.use(authenticateToken);
 
 // Create a new project contract
 router.post("/create-project-contract", projectContractController.createProjectContract);
@@ -12,6 +15,5 @@ router.get('/get-single-project-contract/:id', projectContractController.getProj
 router.put('/update-project-contract/:id', projectContractController.updateProjectContract);
 // Delete a project contract
 router.delete('/delete-project-contract/:id', projectContractController.deleteProjectContract);
-
 
 module.exports = router;

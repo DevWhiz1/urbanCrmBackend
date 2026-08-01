@@ -1,6 +1,9 @@
 const express = require("express");
 const paymentController = require("../controllers/payment.controller");
+const { authenticateToken } = require("../middleware/auth.middleware");
 const router = express.Router();
+
+router.use(authenticateToken);
 
 router.post("/create-payment", paymentController.createPayment);
 router.get("/get-all-payments", paymentController.getAllPayments);

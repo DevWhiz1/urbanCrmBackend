@@ -2,7 +2,7 @@ const { default: mongoose } = require('mongoose');
 const Project = require('../models/project.schema');
 const Contractor = require('../models/contractor.schema');
 const Client = require('../models/client.schema');
-const Payment = require('../models/payment.Schema');
+const Payment = require('../models/payment.schema');
 const ProjectContract = require('../models/projectContractSchema');
 
 const reportsController = {};

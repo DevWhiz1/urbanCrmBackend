@@ -1,6 +1,9 @@
 const express = require('express');
 const reportsController = require('../controllers/reports.controller');
+const { authenticateToken } = require('../middleware/auth.middleware');
 const router = express.Router();
+
+router.use(authenticateToken);
 
 // Get project reports
 router.get('/projects', reportsController.getProjectReports);
