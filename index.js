@@ -19,8 +19,12 @@ const userRoute = require('./routes/users.route');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Connect Database
-connectDB();
+// Start the connection without blocking middleware registration. A failed
+// connection is logged, but must not terminate a Vercel function before it can
+// answer CORS preflight requests.
+connectDB().catch((error) => {
+  console.error(`Database initialization failed: ${error.message}`);
+});
 
 // Middleware
 app.use(cors({
@@ -55,7 +59,11 @@ app.use('/api/material', materialRoute);
 app.use('/api/dashboard', dashboardRoute);
 app.use('/api/reports', reportsRoute);
 
-// Start Server
-app.listen(PORT, () => {
-  console.log(`Server is listening on http://localhost:${PORT}`);
-});
+// Vercel invokes the exported Express app. Keep a listener only for local use.
+if (!process.env.VERCEL) {
+  app.listen(PORT, () => {
+    console.log(`Server is listening on http://localhost:${PORT}`);
+  });
+}
+
+module.exports = app;
