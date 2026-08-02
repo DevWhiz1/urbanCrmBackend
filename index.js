@@ -2,7 +2,9 @@ const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
 const connectDB = require('./config/db');
+
 dotenv.config();
+
 const authRoute = require('./routes/auth.route');
 const projectRoute = require('./routes/project.route');
 const contractor = require('./routes/contractor.route');
@@ -12,28 +14,36 @@ const paymentRoute = require('./routes/payment.route');
 const materialRoute = require('./routes/material.route');
 const dashboardRoute = require('./routes/dashboard.route');
 const reportsRoute = require('./routes/reports.route');
-
 const userRoute = require('./routes/users.route');
+
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+// Connect Database
+connectDB();
+
 // Middleware
-// app.use(cors()); 
 app.use(cors({
-  origin: ["http://localhost:5173", "https://urban-crm-frontend.vercel.app"],
-  methods: ["GET", "POST", "PUT", "DELETE"],
-  credentials: true
+  origin: "*",
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"]
 }));
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-connectDB();
+
+// Request Logger
 app.use((req, res, next) => {
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl}`);
   next();
 });
+
+// Default Route
 app.get('/', (req, res) => {
   res.send('Server is running!');
 });
+
+// API Routes
 app.use('/api/auth', authRoute);
 app.use('/api/user', userRoute);
 app.use('/api/project', projectRoute);
@@ -45,6 +55,7 @@ app.use('/api/material', materialRoute);
 app.use('/api/dashboard', dashboardRoute);
 app.use('/api/reports', reportsRoute);
 
+// Start Server
 app.listen(PORT, () => {
   console.log(`Server is listening on http://localhost:${PORT}`);
 });
