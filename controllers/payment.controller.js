@@ -1,4 +1,4 @@
-const Payment = require("../models/payment.schema");
+const Payment = require("../models/payment.Schema");
 const Project = require('../models/project.schema');
 const Material = require('../models/material.schema');
 const ProjectContract = require('../models/projectContractSchema');

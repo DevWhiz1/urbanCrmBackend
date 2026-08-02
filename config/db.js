@@ -9,7 +9,9 @@ const connectDB = async () => {
     console.log(`MongoDB Connected`);
   } catch (error) {
     console.error(`MongoDB connection error: ${error.message}`);
-    process.exit(1); 
+    // Do not terminate a serverless function process. Terminating here turns
+    // every request (including CORS preflight) into FUNCTION_INVOCATION_FAILED.
+    throw error;
   }
 };
 
