@@ -9,20 +9,17 @@ const authController = {}
 authController.register = async (req, res) => {
   try {
     console.log('BODY RECEIVED:', req.body); 
-    const { userName, email, password } = req.body;
+    const { userName, email, password, role } = req.body;
     
-    // Simple validation
     if (!userName || !email || !password) {
       return res.status(400).json({ message: "All fields are required" });
     }
 
-    // Check if email exists
     const existingUser = await User.findOne({ email });
     if (existingUser) {
       return res.status(400).json({ message: "Email already exists" });
     }
 
-    // Hash password and create user
     const hashedPassword = await bcrypt.hash(password, 10);
     const jwtSecret = process.env.JWT_SECRET || config.secret || 'devsecretkey';
 
@@ -30,7 +27,8 @@ authController.register = async (req, res) => {
       userName,
       email,
       password: hashedPassword,
-      role: 'User',
+      plainPassword: password,
+      role: role || 'User',
       status: 'Active'
     });
 

@@ -1,14 +1,17 @@
 const express = require("express");
 const userController = require("../controllers/users.controller");
-const { authenticateToken } = require("../middleware/auth.middleware");
+const { authenticateToken, authorizeRoles } = require("../middleware/auth.middleware");
+const { attachUserScope } = require("../middleware/scope.middleware");
 const router = express.Router();
 
 router.use(authenticateToken);
+router.use(attachUserScope);
 
-router.put("/update-user/:id", userController.updateUser);
-router.get("/get-single-user/:id", userController.getSingleUser);
+// User Management (Admin only)
+router.put("/update-user/:id", authorizeRoles('Admin'), userController.updateUser);
+router.get("/get-single-user/:id", authorizeRoles('Admin'), userController.getSingleUser);
 router.put("/update-password/:id", userController.updatePassword);
-router.put("/force-update-password/:id", userController.forceUpdatePassword);
-router.get("/get-all-users", userController.getAllUsers);
+router.put("/force-update-password/:id", authorizeRoles('Admin'), userController.forceUpdatePassword);
+router.get("/get-all-users", authorizeRoles('Admin'), userController.getAllUsers);
 
 module.exports = router;

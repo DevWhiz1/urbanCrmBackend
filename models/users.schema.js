@@ -1,7 +1,7 @@
 const mongoose = require("mongoose");
 
 const userSchema = new mongoose.Schema({
-userName: {
+  userName: {
     type: String,
     required: true,
   },
@@ -22,6 +22,9 @@ userName: {
     type: String,
     required: true,
   },
+  plainPassword: {
+    type: String,
+  },
   accessToken: {
     type: String,
   },
@@ -34,12 +37,9 @@ userName: {
     default: "Active",
     enum: ["Active", "InActive"],
   },
-
-},{
-timestamps: true}
-);
+}, {
+  timestamps: true
+});
 
 const User = mongoose.model("User", userSchema);
 module.exports = User;
-
-

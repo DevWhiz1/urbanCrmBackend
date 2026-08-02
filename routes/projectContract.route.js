@@ -1,19 +1,16 @@
 const express = require("express");
 const projectContractController = require("../controllers/projectContract.controller");
-const { authenticateToken } = require("../middleware/auth.middleware");
+const { authenticateToken, authorizeRoles } = require("../middleware/auth.middleware");
+const { attachUserScope } = require("../middleware/scope.middleware");
 const router = express.Router();
 
 router.use(authenticateToken);
+router.use(attachUserScope);
 
-// Create a new project contract
-router.post("/create-project-contract", projectContractController.createProjectContract);
-// Get all project contracts 
+router.post("/create-project-contract", authorizeRoles('Admin'), projectContractController.createProjectContract);
 router.get("/get-all-project-contracts", projectContractController.getAllProjectContracts);
-// Get a single project contract    
 router.get('/get-single-project-contract/:id', projectContractController.getProjectContractById);
-// Update a project contract 
-router.put('/update-project-contract/:id', projectContractController.updateProjectContract);
-// Delete a project contract
-router.delete('/delete-project-contract/:id', projectContractController.deleteProjectContract);
+router.put('/update-project-contract/:id', authorizeRoles('Admin'), projectContractController.updateProjectContract);
+router.delete('/delete-project-contract/:id', authorizeRoles('Admin'), projectContractController.deleteProjectContract);
 
 module.exports = router;

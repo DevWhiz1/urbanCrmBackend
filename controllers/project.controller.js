@@ -1,5 +1,6 @@
 const { default: mongoose } = require('mongoose');
 const projectModel = require('../models/project.schema');
+const { getPaginationParams, formatPaginatedResponse } = require('../utils/paginate');
 
 const projectController = {};
 
@@ -31,10 +32,9 @@ projectController.createProject = async (req, res) => {
       contracts
     } = req.body;
 
-    // Generate project code
     const projectCode = await generateProjectCode(name);
-const totalCost = (ratePerSquareFoot || 0) * (totalCoverageArea || 0);
-const totalLabourCost = (labouRate || 0) * (totalCoverageArea || 0);
+    const totalCost = (ratePerSquareFoot || 0) * (totalCoverageArea || 0);
+    const totalLabourCost = (labouRate || 0) * (totalCoverageArea || 0);
 
     const newProject = new projectModel({
       name,
@@ -68,19 +68,49 @@ const totalLabourCost = (labouRate || 0) * (totalCoverageArea || 0);
     res.status(500).json({ status: 500, message: "Internal server error", error: error.message });
   }
 };
-// Get all projects
+
+// Get all projects with Data Scoping & Pagination
 projectController.getAllProjects = async (req, res) => {
   try {
-    const projects = await projectModel.find({})
+    const filter = {};
+
+    // Role-Based Data Scoping
+    if (req.user?.role === 'Contractor') {
+      filter.contractors = req.contractorId;
+    } else if (req.user?.role === 'User') {
+      filter.customer = req.clientId;
+    }
+
+    // Category / Status / Search filters
+    if (req.query.status) {
+      filter.status = req.query.status;
+    }
+    if (req.query.category) {
+      filter.projectCategory = req.query.category;
+    }
+    if (req.query.search) {
+      filter.$or = [
+        { name: { $regex: req.query.search, $options: 'i' } },
+        { location: { $regex: req.query.search, $options: 'i' } },
+        { projectCode: { $regex: req.query.search, $options: 'i' } },
+      ];
+    }
+
+    const { isPaginated, page, limit, skip } = getPaginationParams(req);
+    const total = await projectModel.countDocuments(filter);
+
+    let query = projectModel.find(filter)
       .populate('customer', 'user paymentTerms bankDetails address phoneNumber isActive')
       .populate('contractors', 'user companyName contractorType paymentTerms bankDetails address phoneNumber')
       .sort({ createdAt: -1 });
 
-    res.status(200).json({ 
-      status: 200, 
-      message: "Projects retrieved successfully", 
-      data: projects 
-    });
+    if (isPaginated && limit > 0) {
+      query = query.skip(skip).limit(limit);
+    }
+
+    const projects = await query;
+    const response = formatPaginatedResponse(projects, total, page, limit);
+    res.status(200).json(response);
   } catch (error) {
     res.status(500).json({ 
       status: 500, 
@@ -90,7 +120,7 @@ projectController.getAllProjects = async (req, res) => {
   }
 };
 
-// Get a single project by ID
+// Get a single project by ID with Scope Verification
 projectController.getProjectById = async (req, res) => {
   try {
     const { id } = req.params;
@@ -111,6 +141,18 @@ projectController.getProjectById = async (req, res) => {
         status: 404, 
         message: "Project not found" 
       });
+    }
+
+    // Role-Based Authorization Check
+    if (req.user?.role === 'Contractor') {
+      const isAssigned = project.contractors.some(c => c._id.toString() === req.contractorId?.toString());
+      if (!isAssigned) {
+        return res.status(403).json({ status: 403, message: "Access denied to this project" });
+      }
+    } else if (req.user?.role === 'User') {
+      if (project.customer?._id.toString() !== req.clientId?.toString()) {
+        return res.status(403).json({ status: 403, message: "Access denied to this project" });
+      }
     }
 
     res.status(200).json({ 
@@ -140,7 +182,6 @@ projectController.updateProject = async (req, res) => {
       });
     }
 
-    // Recalculate costs if relevant fields are updated
     if (updateData.ratePerSquareFoot && updateData.totalCoverageArea) {
       updateData.totalCost = updateData.ratePerSquareFoot * updateData.totalCoverageArea;
     }

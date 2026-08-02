@@ -1,26 +1,18 @@
 const express = require('express');
 const reportsController = require('../controllers/reports.controller');
-const { authenticateToken } = require('../middleware/auth.middleware');
+const { authenticateToken, authorizeRoles } = require('../middleware/auth.middleware');
+const { attachUserScope } = require('../middleware/scope.middleware');
 const router = express.Router();
 
 router.use(authenticateToken);
+router.use(attachUserScope);
 
-// Get project reports
-router.get('/projects', reportsController.getProjectReports);
-
-// Get contractor performance reports
-router.get('/contractors', reportsController.getContractorReports);
-
-// Get client reports
-router.get('/clients', reportsController.getClientReports);
-
-// Get payment reports
-router.get('/payments', reportsController.getPaymentReports);
-
-// Get financial summary report
-router.get('/financial-summary', reportsController.getFinancialSummary);
-
-// Get payment analytics for dashboard graphs
-router.get('/payment-analytics', reportsController.getPaymentAnalytics);
+// Admin-only reports
+router.get('/projects', authorizeRoles('Admin'), reportsController.getProjectReports);
+router.get('/contractors', authorizeRoles('Admin'), reportsController.getContractorReports);
+router.get('/clients', authorizeRoles('Admin'), reportsController.getClientReports);
+router.get('/payments', authorizeRoles('Admin'), reportsController.getPaymentReports);
+router.get('/financial-summary', authorizeRoles('Admin'), reportsController.getFinancialSummary);
+router.get('/payment-analytics', authorizeRoles('Admin'), reportsController.getPaymentAnalytics);
 
 module.exports = router;

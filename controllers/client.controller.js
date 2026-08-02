@@ -1,5 +1,6 @@
 const { default: mongoose } = require('mongoose');
 const Client = require("../models/client.schema");
+const { getPaginationParams, formatPaginatedResponse } = require('../utils/paginate');
 
 const clientController = {};
 
@@ -22,18 +23,29 @@ clientController.createClient = async (req, res) => {
   }
 };
 
-// Get all clients
+// Get all clients with Scoping & Pagination
 clientController.getAllClients = async (req, res) => {
   try {
-    const clients = await Client.find({})
+    const filter = {};
+
+    if (req.user?.role === 'User' && req.clientId) {
+      filter._id = req.clientId;
+    }
+
+    const { isPaginated, page, limit, skip } = getPaginationParams(req);
+    const total = await Client.countDocuments(filter);
+
+    let query = Client.find(filter)
       .populate('user', 'userName email phoneNumber address status')
       .sort({ createdAt: -1 });
 
-    res.status(200).json({
-      status: 200,
-      message: "Clients retrieved successfully",
-      data: clients,
-    });
+    if (isPaginated && limit > 0) {
+      query = query.skip(skip).limit(limit);
+    }
+
+    const clients = await query;
+    const response = formatPaginatedResponse(clients, total, page, limit);
+    res.status(200).json(response);
   } catch (error) {
     res.status(500).json({
       status: 500,
@@ -63,6 +75,10 @@ clientController.getClientById = async (req, res) => {
         status: 404,
         message: "Client not found"
       });
+    }
+
+    if (req.user?.role === 'User' && client._id.toString() !== req.clientId?.toString()) {
+      return res.status(403).json({ status: 403, message: "Access denied to client profile" });
     }
 
     res.status(200).json({

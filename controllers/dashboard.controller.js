@@ -7,22 +7,30 @@ const ProjectContract = require('../models/projectContractSchema');
 
 const dashboardController = {};
 
-// Get comprehensive dashboard statistics
+// Get comprehensive dashboard statistics with Role Scoping
 dashboardController.getDashboardStats = async (req, res) => {
   try {
-    // Get current date for calculations
     const now = new Date();
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-    const startOfYear = new Date(now.getFullYear(), 0, 1);
+
+    const projectFilter = {};
+    const paymentFilter = {};
+
+    if (req.user?.role === 'Contractor' && req.contractorId) {
+      projectFilter.contractors = req.contractorId;
+      paymentFilter.contractor = req.contractorId;
+    } else if (req.user?.role === 'User' && req.clientId) {
+      projectFilter.customer = req.clientId;
+    }
 
     // Projects Statistics
-    const totalProjects = await Project.countDocuments();
-    const activeProjects = await Project.countDocuments({ status: 'active' });
-    const completedProjects = await Project.countDocuments({ status: 'completed' });
-    const planningProjects = await Project.countDocuments({ status: 'planning' });
+    const totalProjects = await Project.countDocuments(projectFilter);
+    const activeProjects = await Project.countDocuments({ ...projectFilter, status: 'ongoing' });
+    const completedProjects = await Project.countDocuments({ ...projectFilter, status: 'completed' });
+    const planningProjects = await Project.countDocuments({ ...projectFilter, status: 'planning' });
 
-    // Calculate total revenue from projects
-    const projects = await Project.find({}, 'totalCost');
+    // Calculate total revenue from scoped projects
+    const projects = await Project.find(projectFilter, 'totalCost');
     const totalRevenue = projects.reduce((sum, project) => sum + (project.totalCost || 0), 0);
     const averageProjectValue = totalProjects > 0 ? totalRevenue / totalProjects : 0;
 
@@ -30,13 +38,11 @@ dashboardController.getDashboardStats = async (req, res) => {
     const totalContractors = await Contractor.countDocuments();
     const activeContractors = await Contractor.countDocuments({ isActive: true });
     
-    // Get average rating
     const contractorsWithRating = await Contractor.find({ rating: { $exists: true, $ne: null } }, 'rating');
     const averageRating = contractorsWithRating.length > 0 
       ? contractorsWithRating.reduce((sum, contractor) => sum + contractor.rating, 0) / contractorsWithRating.length 
       : 0;
 
-    // Get top contractor by rating
     const topContractor = await Contractor.findOne({ rating: { $exists: true } })
       .populate('user', 'userName')
       .sort({ rating: -1 });
@@ -49,7 +55,7 @@ dashboardController.getDashboardStats = async (req, res) => {
     });
 
     // Payments Statistics
-    const payments = await Payment.find({}, 'amount status createdAt');
+    const payments = await Payment.find(paymentFilter, 'amount status createdAt');
     const totalAmount = payments.reduce((sum, payment) => sum + (payment.amount || 0), 0);
     const pendingAmount = payments
       .filter(p => p.status === 'pending')
@@ -61,8 +67,8 @@ dashboardController.getDashboardStats = async (req, res) => {
       .filter(p => p.status === 'overdue')
       .reduce((sum, payment) => sum + (payment.amount || 0), 0);
 
-    // Recent Activity (last 10 activities)
-    const recentProjects = await Project.find()
+    // Recent Activity
+    const recentProjects = await Project.find(projectFilter)
       .populate('customer', 'user')
       .populate('contractors', 'companyName')
       .sort({ updatedAt: -1 })
@@ -83,6 +89,7 @@ dashboardController.getDashboardStats = async (req, res) => {
       const monthEnd = new Date(now.getFullYear(), now.getMonth() - i + 1, 0);
       
       const monthProjects = await Project.find({
+        ...projectFilter,
         createdAt: { $gte: monthStart, $lte: monthEnd }
       }, 'totalCost');
       
@@ -97,6 +104,7 @@ dashboardController.getDashboardStats = async (req, res) => {
 
     // Project Status Distribution
     const statusCounts = await Project.aggregate([
+      { $match: projectFilter },
       { $group: { _id: '$status', count: { $sum: 1 } } }
     ]);
     

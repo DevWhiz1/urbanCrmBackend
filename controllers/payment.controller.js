@@ -3,6 +3,7 @@ const Project = require('../models/project.schema');
 const Material = require('../models/material.schema');
 const ProjectContract = require('../models/projectContractSchema');
 const mongoose = require('mongoose');
+const { getPaginationParams, formatPaginatedResponse } = require('../utils/paginate');
 
 const paymentController = {};
 
@@ -26,10 +27,21 @@ paymentController.createPayment = async (req, res) => {
   }
 };
 
-// Get all payments
+// Get all payments with Role Scoping & Pagination
 paymentController.getAllPayments = async (req, res) => {
   try {
-    const payments = await Payment.aggregate([
+    const { isPaginated, page, limit, skip } = getPaginationParams(req);
+    const matchStage = {};
+
+    // Role-based scoping
+    if (req.user?.role === 'Contractor') {
+      if (req.contractorId) {
+        matchStage.contractor = new mongoose.Types.ObjectId(req.contractorId);
+      }
+    }
+
+    const pipeline = [
+      { $match: matchStage },
       // Lookup Project
       {
         $lookup: {
@@ -40,6 +52,11 @@ paymentController.getAllPayments = async (req, res) => {
         }
       },
       { $unwind: { path: "$project", preserveNullAndEmptyArrays: true } },
+
+      // Filter by Client scope if User role
+      ...(req.user?.role === 'User' && req.clientId ? [
+        { $match: { "project.customer": new mongoose.Types.ObjectId(req.clientId) } }
+      ] : []),
 
       // Lookup Contractor
       {
@@ -74,18 +91,20 @@ paymentController.getAllPayments = async (req, res) => {
       },
       { $unwind: { path: "$createdBy", preserveNullAndEmptyArrays: true } },
 
-      // Project only needed fields
+      // Project fields
       {
         $project: {
           _id: 1,
           amount: 1,
           date: 1,
           status: 1,
+          type: 1,
           paymentMethod: 1,
           transactionId: 1,
           workDescription: 1,
           notes: 1,
           receiptPhoto: 1,
+          createdAt: 1,
           "project._id": 1,
           "project.name": 1,
           "contractor._id": 1,
@@ -95,9 +114,27 @@ paymentController.getAllPayments = async (req, res) => {
           "createdBy._id": 1,
           "createdBy.userName": 1,
         }
+      },
+      { $sort: { createdAt: -1 } }
+    ];
+
+    // Execution with Facet for Count & Pagination
+    const facetPipeline = [
+      ...pipeline,
+      {
+        $facet: {
+          data: isPaginated && limit > 0 ? [{ $skip: skip }, { $limit: limit }] : [],
+          totalCount: [{ $count: "count" }]
+        }
       }
-    ]);
-    res.status(200).json({ data: payments });
+    ];
+
+    const result = await Payment.aggregate(facetPipeline);
+    const data = result[0]?.data || [];
+    const total = result[0]?.totalCount[0]?.count || 0;
+
+    const response = formatPaginatedResponse(data, total, page, limit);
+    res.status(200).json(response);
   } catch (error) {
     res.status(500).json({
       message: "Failed to fetch payments",
@@ -115,7 +152,6 @@ paymentController.addPaymentForProject = async (req, res) => {
     }
     const newPayment = new Payment(paymentData);
     const savedPayment = await newPayment.save();
-    // Only update totalPaymentReceived if type is 'credit'
     if (savedPayment.type === 'credit') {
       await Project.findByIdAndUpdate(
         paymentData.project,
@@ -150,18 +186,35 @@ paymentController.getTotalPaymentForProject = async (req, res) => {
   }
 };
 
-// Get all payments for a project (with optional type filter)
+// Get all payments for a project (with optional type filter and pagination)
 paymentController.getPaymentsByProject = async (req, res) => {
   try {
     const { projectId } = req.params;
     const { type } = req.query;
     let filter = { project: new mongoose.Types.ObjectId(projectId) };
-    if (type) filter.status = type;
-    const payments = await Payment.find(filter)
+    if (type) filter.type = type;
+
+    // Role-based scoping
+    if (req.user?.role === 'Contractor' && req.contractorId) {
+      filter.contractor = new mongoose.Types.ObjectId(req.contractorId);
+    }
+
+    const { isPaginated, page, limit, skip } = getPaginationParams(req);
+    const total = await Payment.countDocuments(filter);
+
+    let query = Payment.find(filter)
       .populate('contractor', 'companyName')
       .populate('contract', 'contractType')
-      .populate('createdBy', 'userName');
-    res.status(200).json({ data: payments });
+      .populate('createdBy', 'userName')
+      .sort({ createdAt: -1 });
+
+    if (isPaginated && limit > 0) {
+      query = query.skip(skip).limit(limit);
+    }
+
+    const payments = await query;
+    const response = formatPaginatedResponse(payments, total, page, limit);
+    res.status(200).json(response);
   } catch (error) {
     res.status(500).json({ message: 'Failed to fetch payments by project', error: error.message });
   }

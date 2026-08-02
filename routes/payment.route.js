@@ -1,17 +1,19 @@
 const express = require("express");
 const paymentController = require("../controllers/payment.controller");
-const { authenticateToken } = require("../middleware/auth.middleware");
+const { authenticateToken, authorizeRoles } = require("../middleware/auth.middleware");
+const { attachUserScope } = require("../middleware/scope.middleware");
 const router = express.Router();
 
 router.use(authenticateToken);
+router.use(attachUserScope);
 
-router.post("/create-payment", paymentController.createPayment);
+router.post("/create-payment", authorizeRoles('Admin'), paymentController.createPayment);
 router.get("/get-all-payments", paymentController.getAllPayments);
-// Add payment for a specific project
-router.post("/add-payment-for-project", paymentController.addPaymentForProject);
+// Add payment for a specific project (Admin only)
+router.post("/add-payment-for-project", authorizeRoles('Admin'), paymentController.addPaymentForProject);
 // Get total payment for a specific project
 router.get("/total/:projectId", paymentController.getTotalPaymentForProject);
-// Get all payments for a project (optionally filter by type)
+// Get all payments for a project
 router.get("/by-project/:projectId", paymentController.getPaymentsByProject);
 // Get payment summary for a project
 router.get("/summary/:projectId", paymentController.getProjectPaymentSummary);

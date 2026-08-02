@@ -1,5 +1,6 @@
 const { default: mongoose } = require('mongoose');
 const ProjectContract = require("../models/projectContractSchema");
+const { getPaginationParams, formatPaginatedResponse } = require('../utils/paginate');
 
 const projectContractController = {};
 
@@ -21,19 +22,30 @@ projectContractController.createProjectContract = async (req, res) => {
   }
 };
 
-// Get all project contracts
+// Get all project contracts with Scoping & Pagination
 projectContractController.getAllProjectContracts = async (req, res) => {
   try {
-    const contracts = await ProjectContract.find({})
+    const filter = {};
+
+    if (req.user?.role === 'Contractor' && req.contractorId) {
+      filter.contractor = req.contractorId;
+    }
+
+    const { isPaginated, page, limit, skip } = getPaginationParams(req);
+    const total = await ProjectContract.countDocuments(filter);
+
+    let query = ProjectContract.find(filter)
       .populate('project', 'name projectCode status location')
       .populate('contractor', 'companyName contractorType user')
       .sort({ createdAt: -1 });
 
-    res.status(200).json({
-      status: 200,
-      message: "Project contracts retrieved successfully",
-      data: contracts,
-    });
+    if (isPaginated && limit > 0) {
+      query = query.skip(skip).limit(limit);
+    }
+
+    const contracts = await query;
+    const response = formatPaginatedResponse(contracts, total, page, limit);
+    res.status(200).json(response);
   } catch (error) {
     res.status(500).json({
       status: 500,
@@ -66,6 +78,10 @@ projectContractController.getProjectContractById = async (req, res) => {
       });
     }
 
+    if (req.user?.role === 'Contractor' && contract.contractor?._id.toString() !== req.contractorId?.toString()) {
+      return res.status(403).json({ status: 403, message: "Access denied to contract" });
+    }
+
     res.status(200).json({
       status: 200,
       message: "Project contract retrieved successfully",
@@ -93,7 +109,6 @@ projectContractController.updateProjectContract = async (req, res) => {
       });
     }
 
-    // Convert string values to numbers where needed
     if (updateData.totalAmount) {
       updateData.totalAmount = parseFloat(updateData.totalAmount);
     }
