@@ -32,8 +32,13 @@ projectController.createProject = async (req, res) => {
     } = req.body;
 
     const projectCode = await generateProjectCode(name);
-    const totalCost = (ratePerSquareFoot || 0) * (totalCoverageArea || 0);
-    const totalLabourCost = (labouRate || 0) * (totalCoverageArea || 0);
+    let calculatedTotalCost = 0;
+    if (projectType === 'labourRate') {
+      calculatedTotalCost = (labouRate || 0) * (totalCoverageArea || 0);
+    } else {
+      calculatedTotalCost = (ratePerSquareFoot || 0) * (totalCoverageArea || 0);
+    }
+    const finalTotalCost = req.body.totalCost ? parseFloat(req.body.totalCost) : calculatedTotalCost;
 
     const newProject = new projectModel({
       name,
@@ -44,9 +49,8 @@ projectController.createProject = async (req, res) => {
       ratePerSquareFoot,
       totalArea,
       totalCoverageArea,
-      totalCost,
+      totalCost: finalTotalCost,
       labouRate,
-      totalLabourCost,
       startDate,
       estimatedDuration,
       customer,
@@ -206,14 +210,18 @@ projectController.updateProject = async (req, res) => {
       });
     }
 
-    const existingProject = await projectModel.findById(id).select('additions');
+    const existingProject = await projectModel.findById(id).select('additions projectType labouRate ratePerSquareFoot totalCoverageArea');
     const additionsSum = (existingProject?.additions || []).reduce((s, a) => s + (a.amount || 0), 0);
 
-    if (updateData.ratePerSquareFoot && updateData.totalCoverageArea) {
-      updateData.totalCost = (updateData.ratePerSquareFoot * updateData.totalCoverageArea) + additionsSum;
-    }
-    if (updateData.labouRate && updateData.totalCoverageArea) {
-      updateData.totalLabourCost = (updateData.labouRate * updateData.totalCoverageArea) + additionsSum;
+    const projectType = updateData.projectType || existingProject?.projectType;
+    const coverageArea = updateData.totalCoverageArea !== undefined ? updateData.totalCoverageArea : existingProject?.totalCoverageArea;
+    
+    if (projectType === 'labourRate' && (updateData.labouRate !== undefined || updateData.totalCoverageArea !== undefined)) {
+      const rate = updateData.labouRate !== undefined ? updateData.labouRate : (existingProject?.labouRate || 0);
+      updateData.totalCost = (rate * (coverageArea || 0)) + additionsSum;
+    } else if (projectType === 'withMaterial' && (updateData.ratePerSquareFoot !== undefined || updateData.totalCoverageArea !== undefined)) {
+      const rate = updateData.ratePerSquareFoot !== undefined ? updateData.ratePerSquareFoot : (existingProject?.ratePerSquareFoot || 0);
+      updateData.totalCost = (rate * (coverageArea || 0)) + additionsSum;
     }
 
     updateData.updatedAt = Date.now();
@@ -341,12 +349,8 @@ projectController.addProjectAddition = async (req, res) => {
 
     project.additions.push(newAddition);
 
-    // Update totalCost / totalLabourCost directly so all APIs (Dashboard, Reports, Aggregations) automatically reflect additions
-    if (project.projectType === 'withMaterial') {
-      project.totalCost = (project.totalCost || 0) + newAddition.amount;
-    } else if (project.projectType === 'labourRate') {
-      project.totalLabourCost = (project.totalLabourCost || 0) + newAddition.amount;
-    }
+    // Update totalCost directly so all APIs (Dashboard, Reports, Aggregations) automatically reflect additions
+    project.totalCost = (project.totalCost || 0) + newAddition.amount;
 
     project.updatedAt = Date.now();
     await project.save();

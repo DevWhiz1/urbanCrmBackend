@@ -9,6 +9,7 @@ router.use(attachUserScope);
 
 // Add new material (Admin only)
 router.post('/add-material-payment', authorizeRoles('Admin'), materialController.createMaterial);
+router.post('/bulk-import', authorizeRoles('Admin'), materialController.bulkImportMaterials);
 
 // Get all materials
 router.get('/get-all-material-payment', materialController.getAllMaterials);

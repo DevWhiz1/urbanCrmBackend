@@ -253,7 +253,7 @@ paymentController.getMaterialPaymentsByProject = async (req, res) => {
 paymentController.getFullProjectFinancialSummary = async (req, res) => {
   try {
     const { projectId } = req.params;
-    const project = await Project.findById(projectId).select('name totalPaymentReceived projectType totalLabourCost totalCost additions');
+    const project = await Project.findById(projectId).select('name totalPaymentReceived projectType totalCost additions');
     if (!project) {
       return res.status(404).json({ message: 'Project not found' });
     }
@@ -265,9 +265,9 @@ paymentController.getFullProjectFinancialSummary = async (req, res) => {
     const materials = await Material.find({ project: projectId });
     const totalMaterialPayments = materials.reduce((sum, m) => sum + (m.totalAmount || 0), 0);
     const net = project.totalPaymentReceived - totalDebits - totalMaterialPayments;
-    let baseProjectCost = project.projectType === 'labourRate' ? project.totalLabourCost : project.totalCost;
     const additionsTotal = (project.additions || []).reduce((sum, a) => sum + (a.amount || 0), 0);
-    let projectCost = (baseProjectCost || 0) + additionsTotal;
+    const projectCost = project.totalCost || 0;
+    const baseProjectCost = Math.max(0, projectCost - additionsTotal);
     res.json({
       projectId,
       projectName: project.name,
@@ -334,6 +334,154 @@ paymentController.getProjectContractSummary = async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ message: 'Failed to get project contract summary', error: error.message });
+  }
+};
+
+// Bulk import payments for a project, contractor, and contract
+paymentController.bulkImportPayments = async (req, res) => {
+  try {
+    const { project, contractor, contract, payments } = req.body;
+
+    if (!project) {
+      return res.status(400).json({ message: "Project ID is required." });
+    }
+    if (!contractor) {
+      return res.status(400).json({ message: "Contractor ID is required." });
+    }
+    if (!payments || !Array.isArray(payments) || payments.length === 0) {
+      return res.status(400).json({ message: "No payments provided for import." });
+    }
+
+    const createdBy = req.user?.userId || req.user?.id || req.user?._id;
+
+    // Prepare payments data array
+    const paymentsToInsert = payments.map((p) => {
+      const parsedAmount = parseFloat(p.amount);
+      if (isNaN(parsedAmount) || parsedAmount <= 0) {
+        throw new Error(`Invalid payment amount: ${p.amount}`);
+      }
+
+      const parsedDate = p.date ? new Date(p.date) : new Date();
+      const rawDesc = p.workDescription || p.notes;
+      const finalDesc = (rawDesc && rawDesc.trim() !== '') ? rawDesc.trim() : 'None';
+
+      return {
+        project,
+        contractor,
+        contract: contract || undefined,
+        type: p.type || 'debit',
+        date: isNaN(parsedDate.getTime()) ? new Date() : parsedDate,
+        amount: parsedAmount,
+        paymentMethod: p.paymentMethod || 'cash',
+        workDescription: finalDesc,
+        status: p.status || 'paid',
+        notes: p.notes || undefined,
+        createdBy: createdBy || undefined
+      };
+    });
+
+    const savedPayments = await Payment.insertMany(paymentsToInsert);
+
+    // If contract provided, push payment IDs to ProjectContract.payments
+    if (contract && savedPayments.length > 0) {
+      const paymentIds = savedPayments.map((p) => p._id);
+      await ProjectContract.findByIdAndUpdate(
+        contract,
+        { $push: { payments: { $each: paymentIds } } }
+      );
+    }
+
+    // Update totalPaymentReceived for project if any credit payments present
+    const totalCreditAmount = savedPayments
+      .filter((p) => p.type === 'credit')
+      .reduce((sum, p) => sum + p.amount, 0);
+
+    if (totalCreditAmount > 0) {
+      await Project.findByIdAndUpdate(
+        project,
+        { $inc: { totalPaymentReceived: totalCreditAmount } }
+      );
+    }
+
+    res.status(201).json({
+      message: `Successfully imported ${savedPayments.length} payments`,
+      count: savedPayments.length,
+      payments: savedPayments
+    });
+  } catch (error) {
+    console.error("Error bulk importing payments:", error);
+    res.status(500).json({
+      message: "Failed to bulk import payments",
+      error: error.message
+    });
+  }
+};
+
+// Bulk import credit payments received for a project
+paymentController.bulkImportProjectPayments = async (req, res) => {
+  try {
+    const { project, payments } = req.body;
+
+    if (!project) {
+      return res.status(400).json({ message: "Project ID is required." });
+    }
+    if (!payments || !Array.isArray(payments) || payments.length === 0) {
+      return res.status(400).json({ message: "No payment records provided for import." });
+    }
+
+    const createdBy = req.user?.userId || req.user?.id || req.user?._id;
+
+    let totalCreditAmount = 0;
+
+    const paymentsToInsert = payments.map((p) => {
+      const parsedAmount = parseFloat(p.amount);
+      if (isNaN(parsedAmount) || parsedAmount <= 0) {
+        throw new Error(`Invalid payment amount: ${p.amount}`);
+      }
+
+      const parsedDate = p.date ? new Date(p.date) : new Date();
+      const rawDesc = p.workDescription || p.notes;
+      const finalDesc = (rawDesc && rawDesc.trim() !== '') ? rawDesc.trim() : 'None';
+      const paymentType = p.type || 'credit';
+
+      if (paymentType === 'credit') {
+        totalCreditAmount += parsedAmount;
+      }
+
+      return {
+        project,
+        type: paymentType,
+        date: isNaN(parsedDate.getTime()) ? new Date() : parsedDate,
+        amount: parsedAmount,
+        paymentMethod: p.paymentMethod || 'bank_transfer',
+        workDescription: finalDesc,
+        status: p.status || 'paid',
+        notes: p.notes || undefined,
+        createdBy: createdBy || undefined
+      };
+    });
+
+    const savedPayments = await Payment.insertMany(paymentsToInsert);
+
+    // Update totalPaymentReceived on Project
+    if (totalCreditAmount > 0) {
+      await Project.findByIdAndUpdate(
+        project,
+        { $inc: { totalPaymentReceived: totalCreditAmount } }
+      );
+    }
+
+    res.status(201).json({
+      message: `Successfully imported ${savedPayments.length} project credit payments`,
+      count: savedPayments.length,
+      payments: savedPayments
+    });
+  } catch (error) {
+    console.error("Error bulk importing project payments:", error);
+    res.status(500).json({
+      message: "Failed to bulk import project payments",
+      error: error.message
+    });
   }
 };
 

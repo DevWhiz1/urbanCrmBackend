@@ -8,6 +8,8 @@ router.use(authenticateToken);
 router.use(attachUserScope);
 
 router.post("/create-payment", authorizeRoles('Admin'), paymentController.createPayment);
+router.post("/bulk-import", authorizeRoles('Admin'), paymentController.bulkImportPayments);
+router.post("/bulk-import-project", authorizeRoles('Admin'), paymentController.bulkImportProjectPayments);
 router.get("/get-all-payments", paymentController.getAllPayments);
 // Add payment for a specific project (Admin only)
 router.post("/add-payment-for-project", authorizeRoles('Admin'), paymentController.addPaymentForProject);
