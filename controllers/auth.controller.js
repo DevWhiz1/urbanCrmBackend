@@ -118,7 +118,7 @@ authController.login = async (req, res) => {
     // Generate JWT
     const jwtSecret = process.env.JWT_SECRET || config.secret || 'devsecretkey';
     const token = jwt.sign(
-      { userId: user._id, email: user.email, role: user.role },
+      { userId: user._id, email: user.email, userName: user.userName, role: user.role },
       jwtSecret,
       { expiresIn: '7d' }
     );

@@ -12,5 +12,6 @@ router.get("/get-all-project-contracts", projectContractController.getAllProject
 router.get('/get-single-project-contract/:id', projectContractController.getProjectContractById);
 router.put('/update-project-contract/:id', authorizeRoles('Admin'), projectContractController.updateProjectContract);
 router.delete('/delete-project-contract/:id', authorizeRoles('Admin'), projectContractController.deleteProjectContract);
+router.post('/add-addition/:id', authorizeRoles('Admin'), projectContractController.addContractAddition);
 
 module.exports = router;

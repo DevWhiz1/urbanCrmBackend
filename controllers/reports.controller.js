@@ -29,8 +29,8 @@ reportsController.getProjectReports = async (req, res) => {
 
     // Get projects with populated data
     const projects = await Project.find(filter)
-      .populate('customer', 'user paymentTerms bankDetails address phoneNumber isActive')
-      .populate('contractors', 'companyName contractorType user paymentTerms bankDetails address phoneNumber')
+      .populate({ path: 'customer', select: 'user paymentTerms bankDetails address phoneNumber isActive', populate: { path: 'user', select: 'userName email' } })
+      .populate({ path: 'contractors', select: 'companyName contractorType user paymentTerms bankDetails address phoneNumber', populate: { path: 'user', select: 'userName email' } })
       .sort({ createdAt: -1 });
 
     // Calculate statistics

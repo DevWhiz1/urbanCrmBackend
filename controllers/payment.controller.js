@@ -253,7 +253,7 @@ paymentController.getMaterialPaymentsByProject = async (req, res) => {
 paymentController.getFullProjectFinancialSummary = async (req, res) => {
   try {
     const { projectId } = req.params;
-    const project = await Project.findById(projectId).select('name totalPaymentReceived projectType totalLabourCost totalCost');
+    const project = await Project.findById(projectId).select('name totalPaymentReceived projectType totalLabourCost totalCost additions');
     if (!project) {
       return res.status(404).json({ message: 'Project not found' });
     }
@@ -265,17 +265,17 @@ paymentController.getFullProjectFinancialSummary = async (req, res) => {
     const materials = await Material.find({ project: projectId });
     const totalMaterialPayments = materials.reduce((sum, m) => sum + (m.totalAmount || 0), 0);
     const net = project.totalPaymentReceived - totalDebits - totalMaterialPayments;
-    let projectCost = null;
-    if (project.projectType === 'labourRate') {
-      projectCost = project.totalLabourCost;
-    } else if (project.projectType === 'withMaterial') {
-      projectCost = project.totalCost;
-    }
+    let baseProjectCost = project.projectType === 'labourRate' ? project.totalLabourCost : project.totalCost;
+    const additionsTotal = (project.additions || []).reduce((sum, a) => sum + (a.amount || 0), 0);
+    let projectCost = (baseProjectCost || 0) + additionsTotal;
     res.json({
       projectId,
       projectName: project.name,
       projectType: project.projectType,
       projectCost,
+      baseProjectCost,
+      additionsTotal,
+      additions: project.additions || [],
       totalPaymentReceived: project.totalPaymentReceived,
       totalDebits,
       totalMaterialPayments,
@@ -314,14 +314,19 @@ paymentController.getProjectContractSummary = async (req, res) => {
     const payments = await Payment.find({ contract: projectContractId })
       .populate('contractor', 'companyName')
       .populate('createdBy', 'userName');
+    const additionsTotal = (contract.additions || []).reduce((sum, a) => sum + (a.amount || 0), 0);
+    const revisedTotalAmount = (contract.totalAmount || 0) + additionsTotal;
     const totalPayments = payments.filter(p => p.type === 'debit').reduce((sum, p) => sum + (p.amount || 0), 0);
-    const net = contract.totalAmount - totalPayments;
+    const net = revisedTotalAmount - totalPayments;
     res.json({
       projectContractId,
       projectName: contract.project?.name,
       contractorName: contract.contractor?.companyName,
       contractType: contract.contractType,
-      totalAmount: contract.totalAmount,
+      totalAmount: revisedTotalAmount,
+      baseTotalAmount: contract.totalAmount,
+      additionsTotal,
+      additions: contract.additions || [],
       totalPayments,
       net,
       payments,

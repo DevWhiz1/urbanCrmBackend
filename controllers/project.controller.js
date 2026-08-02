@@ -25,7 +25,6 @@ projectController.createProject = async (req, res) => {
       startDate,
       estimatedDuration,
       customer,
-      contractors,
       description,
       status,
       drawings,
@@ -51,7 +50,7 @@ projectController.createProject = async (req, res) => {
       startDate,
       estimatedDuration,
       customer,
-      contractors,
+      contractors: req.body.contractors || [],
       description,
       status: status || 'planning',
       drawings,
@@ -76,7 +75,12 @@ projectController.getAllProjects = async (req, res) => {
 
     // Role-Based Data Scoping
     if (req.user?.role === 'Contractor') {
-      filter.contractors = req.contractorId;
+      const ProjectContract = require('../models/projectContractSchema');
+      const contractProjectIds = await ProjectContract.find({ contractor: req.contractorId }).distinct('project');
+      filter.$or = [
+        { contractors: req.contractorId },
+        { _id: { $in: contractProjectIds } }
+      ];
     } else if (req.user?.role === 'User') {
       filter.customer = req.clientId;
     }
@@ -100,8 +104,8 @@ projectController.getAllProjects = async (req, res) => {
     const total = await projectModel.countDocuments(filter);
 
     let query = projectModel.find(filter)
-      .populate('customer', 'user paymentTerms bankDetails address phoneNumber isActive')
-      .populate('contractors', 'user companyName contractorType paymentTerms bankDetails address phoneNumber')
+      .populate({ path: 'customer', select: 'user paymentTerms bankDetails address phoneNumber isActive', populate: { path: 'user', select: 'userName email' } })
+      .populate({ path: 'contractors', select: 'user companyName contractorType paymentTerms bankDetails address phoneNumber', populate: { path: 'user', select: 'userName email' } })
       .sort({ createdAt: -1 });
 
     if (isPaginated && limit > 0) {
@@ -133,8 +137,8 @@ projectController.getProjectById = async (req, res) => {
     }
 
     const project = await projectModel.findById(id)
-      .populate('customer', 'user paymentTerms bankDetails address phoneNumber isActive')
-      .populate('contractors', 'user companyName contractorType paymentTerms bankDetails address phoneNumber');
+      .populate({ path: 'customer', select: 'user paymentTerms bankDetails address phoneNumber isActive', populate: { path: 'user', select: 'userName email' } })
+      .populate({ path: 'contractors', select: 'user companyName contractorType paymentTerms bankDetails address phoneNumber', populate: { path: 'user', select: 'userName email' } });
 
     if (!project) {
       return res.status(404).json({ 
@@ -143,10 +147,30 @@ projectController.getProjectById = async (req, res) => {
       });
     }
 
+    // Clean up any email-based addedBy entries to show real userName
+    if (project.additions && project.additions.length > 0) {
+      const User = require('../models/users.schema');
+      let modified = false;
+      for (let addition of project.additions) {
+        if (addition.addedBy && addition.addedBy.includes('@')) {
+          const u = await User.findOne({ email: addition.addedBy }).select('userName');
+          if (u) {
+            addition.addedBy = u.userName;
+            modified = true;
+          }
+        }
+      }
+      if (modified) {
+        await project.save();
+      }
+    }
+
     // Role-Based Authorization Check
     if (req.user?.role === 'Contractor') {
+      const ProjectContract = require('../models/projectContractSchema');
       const isAssigned = project.contractors.some(c => c._id.toString() === req.contractorId?.toString());
-      if (!isAssigned) {
+      const hasContract = await ProjectContract.exists({ project: id, contractor: req.contractorId });
+      if (!isAssigned && !hasContract) {
         return res.status(403).json({ status: 403, message: "Access denied to this project" });
       }
     } else if (req.user?.role === 'User') {
@@ -182,11 +206,14 @@ projectController.updateProject = async (req, res) => {
       });
     }
 
+    const existingProject = await projectModel.findById(id).select('additions');
+    const additionsSum = (existingProject?.additions || []).reduce((s, a) => s + (a.amount || 0), 0);
+
     if (updateData.ratePerSquareFoot && updateData.totalCoverageArea) {
-      updateData.totalCost = updateData.ratePerSquareFoot * updateData.totalCoverageArea;
+      updateData.totalCost = (updateData.ratePerSquareFoot * updateData.totalCoverageArea) + additionsSum;
     }
     if (updateData.labouRate && updateData.totalCoverageArea) {
-      updateData.totalLabourCost = updateData.labouRate * updateData.totalCoverageArea;
+      updateData.totalLabourCost = (updateData.labouRate * updateData.totalCoverageArea) + additionsSum;
     }
 
     updateData.updatedAt = Date.now();
@@ -196,8 +223,8 @@ projectController.updateProject = async (req, res) => {
       updateData, 
       { new: true, runValidators: true }
     )
-    .populate('customer', 'user paymentTerms bankDetails address phoneNumber isActive')
-    .populate('contractors', 'user companyName contractorType paymentTerms bankDetails address phoneNumber');
+    .populate({ path: 'customer', select: 'user paymentTerms bankDetails address phoneNumber isActive', populate: { path: 'user', select: 'userName email' } })
+    .populate({ path: 'contractors', select: 'user companyName contractorType paymentTerms bankDetails address phoneNumber', populate: { path: 'user', select: 'userName email' } });
 
     if (!updatedProject) {
       return res.status(404).json({ 
@@ -258,6 +285,83 @@ projectController.deleteProject = async (req, res) => {
       message: "Internal server error", 
       error: error.message 
     });
+  }
+};
+
+// Add price addition to project
+projectController.addProjectAddition = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { amount, reason } = req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ status: 400, message: "Invalid project ID" });
+    }
+
+    if (!amount || isNaN(parseFloat(amount)) || parseFloat(amount) <= 0) {
+      return res.status(400).json({ status: 400, message: "A valid positive addition amount is required" });
+    }
+
+    if (!reason || !reason.trim()) {
+      return res.status(400).json({ status: 400, message: "Reason for price addition is required" });
+    }
+
+    const project = await projectModel.findById(id);
+    if (!project) {
+      return res.status(404).json({ status: 404, message: "Project not found" });
+    }
+
+    const User = require('../models/users.schema');
+    let currentUser = null;
+    if (req.user?.userId) {
+      currentUser = await User.findById(req.user.userId).select('userName email');
+    } else if (req.user?.email) {
+      currentUser = await User.findOne({ email: req.user.email }).select('userName email');
+    }
+
+    const addedByName = currentUser?.userName || req.user?.userName || 'Admin';
+
+    // Clean up existing addition records if they store an email address
+    for (let addition of project.additions) {
+      if (addition.addedBy && addition.addedBy.includes('@')) {
+        const u = await User.findOne({ email: addition.addedBy }).select('userName');
+        if (u) {
+          addition.addedBy = u.userName;
+        }
+      }
+    }
+
+    const newAddition = {
+      amount: parseFloat(amount),
+      reason: reason.trim(),
+      date: new Date(),
+      createdBy: currentUser?._id,
+      addedBy: addedByName
+    };
+
+    project.additions.push(newAddition);
+
+    // Update totalCost / totalLabourCost directly so all APIs (Dashboard, Reports, Aggregations) automatically reflect additions
+    if (project.projectType === 'withMaterial') {
+      project.totalCost = (project.totalCost || 0) + newAddition.amount;
+    } else if (project.projectType === 'labourRate') {
+      project.totalLabourCost = (project.totalLabourCost || 0) + newAddition.amount;
+    }
+
+    project.updatedAt = Date.now();
+    await project.save();
+
+    const updatedProject = await projectModel.findById(id)
+      .populate({ path: 'customer', select: 'user paymentTerms bankDetails address phoneNumber isActive', populate: { path: 'user', select: 'userName email' } })
+      .populate({ path: 'contractors', select: 'user companyName contractorType paymentTerms bankDetails address phoneNumber', populate: { path: 'user', select: 'userName email' } });
+
+    res.status(200).json({
+      status: 200,
+      message: "Price addition added successfully",
+      data: updatedProject
+    });
+  } catch (error) {
+    res.status(500).json({ status: 500, message: "Internal server error", error: error.message });
   }
 };
 

@@ -17,5 +17,7 @@ router.get('/get-single-project/:id', projectController.getProjectById);
 router.put('/update-project/:id', authorizeRoles('Admin'), projectController.updateProject);
 // Delete a project (Admin only)
 router.delete('/delete-project/:id', authorizeRoles('Admin'), projectController.deleteProject);
+// Add price addition to project (Admin only)
+router.post('/add-addition/:id', authorizeRoles('Admin'), projectController.addProjectAddition);
 
 module.exports = router;

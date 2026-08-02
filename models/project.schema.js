@@ -24,6 +24,13 @@ const projectSchema = new mongoose.Schema({
   totalCost: { type: Number },
   labouRate: { type: Number },
   totalLabourCost: { type: Number },
+  additions: [{
+    amount: { type: Number, required: true },
+    reason: { type: String, required: true },
+    date: { type: Date, default: Date.now },
+    createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    addedBy: { type: String }
+  }],
       // Timeline
 totalPaymentReceived: { 
   type: Number,

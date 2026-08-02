@@ -16,6 +16,13 @@ const projectContractSchema = new mongoose.Schema({
     type: String,
   },
   totalAmount: { type: Number, required: true },
+  additions: [{
+    amount: { type: Number, required: true },
+    reason: { type: String, required: true },
+    date: { type: Date, default: Date.now },
+    createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    addedBy: { type: String }
+  }],
   startDate: { type: Date, required: true },
   endDate: { type: Date },
    payments: [{

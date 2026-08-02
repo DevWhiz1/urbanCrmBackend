@@ -17,7 +17,11 @@ dashboardController.getDashboardStats = async (req, res) => {
     const paymentFilter = {};
 
     if (req.user?.role === 'Contractor' && req.contractorId) {
-      projectFilter.contractors = req.contractorId;
+      const contractProjectIds = await ProjectContract.find({ contractor: req.contractorId }).distinct('project');
+      projectFilter.$or = [
+        { contractors: req.contractorId },
+        { _id: { $in: contractProjectIds } }
+      ];
       paymentFilter.contractor = req.contractorId;
     } else if (req.user?.role === 'User' && req.clientId) {
       projectFilter.customer = req.clientId;
