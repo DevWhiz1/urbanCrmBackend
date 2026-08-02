@@ -9,31 +9,31 @@ const authController = {}
 authController.register = async (req, res) => {
   try {
     console.log('BODY RECEIVED:', req.body); 
-    const { userName, email, password } = req.body;
+    const { userName, email, password, role } = req.body;
     
-    // Simple validation
     if (!userName || !email || !password) {
       return res.status(400).json({ message: "All fields are required" });
     }
 
-    // Check if email exists
     const existingUser = await User.findOne({ email });
     if (existingUser) {
       return res.status(400).json({ message: "Email already exists" });
     }
 
-    // Hash password and create user
     const hashedPassword = await bcrypt.hash(password, 10);
-    const token = jwt.sign({ email }, config.secret, { expiresIn: '1h' });
+    const jwtSecret = process.env.JWT_SECRET || config.secret || 'devsecretkey';
 
     const user = new User({
       userName,
       email,
       password: hashedPassword,
-      accessToken: token,
-      role: 'User', // Default role
+      plainPassword: password,
+      role: role || 'User',
       status: 'Active'
     });
+
+    const token = jwt.sign({ userId: user._id, email: user.email, role: user.role }, jwtSecret, { expiresIn: '7d' });
+    user.accessToken = token;
 
     await user.save();
 
@@ -116,10 +116,11 @@ authController.login = async (req, res) => {
     }
 
     // Generate JWT
+    const jwtSecret = process.env.JWT_SECRET || config.secret || 'devsecretkey';
     const token = jwt.sign(
-      { userId: user._id, email: user.email },
-      process.env.JWT_SECRET || 'devsecretkey',
-      { expiresIn: '1h' }
+      { userId: user._id, email: user.email, userName: user.userName, role: user.role },
+      jwtSecret,
+      { expiresIn: '7d' }
     );
 
     // Optionally store token

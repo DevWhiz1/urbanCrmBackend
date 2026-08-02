@@ -1,5 +1,6 @@
 const { default: mongoose } = require('mongoose');
 const Contractor = require("../models/contractor.schema");
+const { getPaginationParams, formatPaginatedResponse } = require('../utils/paginate');
 
 const contractorController = {};
 
@@ -22,18 +23,33 @@ contractorController.createContractor = async (req, res) => {
   }
 };
 
-// Get all contractors
+// Get all contractors with Scoping & Pagination
 contractorController.getAllContractor = async (req, res) => {
   try {
-    const contractors = await Contractor.find({})
+    const filter = {};
+
+    if (req.user?.role === 'Contractor' && req.contractorId) {
+      filter._id = req.contractorId;
+    }
+
+    if (req.query.search) {
+      filter.companyName = { $regex: req.query.search, $options: 'i' };
+    }
+
+    const { isPaginated, page, limit, skip } = getPaginationParams(req);
+    const total = await Contractor.countDocuments(filter);
+
+    let query = Contractor.find(filter)
       .populate('user', 'userName email phoneNumber address status')
       .sort({ createdAt: -1 });
 
-    res.status(200).json({
-      status: 200,
-      message: "Contractors retrieved successfully",
-      data: contractors,
-    });
+    if (isPaginated && limit > 0) {
+      query = query.skip(skip).limit(limit);
+    }
+
+    const contractors = await query;
+    const response = formatPaginatedResponse(contractors, total, page, limit);
+    res.status(200).json(response);
   } catch (error) {
     res.status(500).json({
       status: 500,
@@ -63,6 +79,10 @@ contractorController.getContractorById = async (req, res) => {
         status: 404,
         message: "Contractor not found"
       });
+    }
+
+    if (req.user?.role === 'Contractor' && contractor._id.toString() !== req.contractorId?.toString()) {
+      return res.status(403).json({ status: 403, message: "Access denied to contractor profile" });
     }
 
     res.status(200).json({

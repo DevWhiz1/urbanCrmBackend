@@ -1,14 +1,16 @@
 const express = require("express");
 const clientController = require("../controllers/client.controller");
+const { authenticateToken, authorizeRoles } = require("../middleware/auth.middleware");
+const { attachUserScope } = require("../middleware/scope.middleware");
 const router = express.Router();
 
-router.post("/create-client", clientController.createClient);
+router.use(authenticateToken);
+router.use(attachUserScope);
+
+router.post("/create-client", authorizeRoles('Admin'), clientController.createClient);
 router.get("/get-all-clients", clientController.getAllClients);
-// Get a single client
 router.get('/get-single-client/:id', clientController.getClientById);
-// Update a client
-router.put('/update-client/:id', clientController.updateClient);
-// Delete a client
-router.delete('/delete-client/:id', clientController.deleteClient);
+router.put('/update-client/:id', authorizeRoles('Admin'), clientController.updateClient);
+router.delete('/delete-client/:id', authorizeRoles('Admin'), clientController.deleteClient);
 
 module.exports = router;
