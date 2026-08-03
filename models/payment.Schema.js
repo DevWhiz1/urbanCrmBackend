@@ -31,8 +31,9 @@ const paymentSchema = new mongoose.Schema({
   },
   paymentMethod: {
     type: String,
-    enum: ['cash', 'check', 'bank_transfer', 'upi', 'digital_wallet'],
-    required: true
+    enum: ['cash', 'check', 'bank_transfer', 'upi', 'digital_wallet', 'online'],
+    required: false,
+    default: 'online'
   },
   transactionId: {
     type: String,
