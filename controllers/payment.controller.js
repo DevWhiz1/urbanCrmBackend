@@ -54,7 +54,7 @@ paymentController.getAllPayments = async (req, res) => {
       { $unwind: { path: "$project", preserveNullAndEmptyArrays: true } },
 
       // Filter by Client scope if User role
-      ...(req.user?.role === 'User' && req.clientId ? [
+      ...(req.user?.role === 'Client' && req.clientId ? [
         { $match: { "project.customer": new mongoose.Types.ObjectId(req.clientId) } }
       ] : []),
 

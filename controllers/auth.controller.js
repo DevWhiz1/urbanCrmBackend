@@ -28,7 +28,7 @@ authController.register = async (req, res) => {
       email,
       password: hashedPassword,
       plainPassword: password,
-      role: role || 'User',
+      role: role || 'Client',
       status: 'Active'
     });
 

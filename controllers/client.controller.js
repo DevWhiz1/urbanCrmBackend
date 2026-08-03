@@ -28,7 +28,7 @@ clientController.getAllClients = async (req, res) => {
   try {
     const filter = {};
 
-    if (req.user?.role === 'User' && req.clientId) {
+    if (req.user?.role === 'Client' && req.clientId) {
       filter._id = req.clientId;
     }
 
@@ -77,7 +77,7 @@ clientController.getClientById = async (req, res) => {
       });
     }
 
-    if (req.user?.role === 'User' && client._id.toString() !== req.clientId?.toString()) {
+    if (req.user?.role === 'Client' && client._id.toString() !== req.clientId?.toString()) {
       return res.status(403).json({ status: 403, message: "Access denied to client profile" });
     }
 

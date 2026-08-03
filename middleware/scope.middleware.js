@@ -14,7 +14,7 @@ const attachUserScope = async (req, res, next) => {
       if (contractor) {
         req.contractorId = contractor._id;
       }
-    } else if (req.user.role === 'User') {
+    } else if (req.user.role === 'Client') {
       const client = await Client.findOne({ user: userId });
       if (client) {
         req.clientId = client._id;

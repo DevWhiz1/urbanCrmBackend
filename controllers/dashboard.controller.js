@@ -23,7 +23,7 @@ dashboardController.getDashboardStats = async (req, res) => {
         { _id: { $in: contractProjectIds } }
       ];
       paymentFilter.contractor = req.contractorId;
-    } else if (req.user?.role === 'User' && req.clientId) {
+    } else if (req.user?.role === 'Client' && req.clientId) {
       projectFilter.customer = req.clientId;
     }
 

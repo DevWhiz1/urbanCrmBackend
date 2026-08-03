@@ -85,7 +85,7 @@ projectController.getAllProjects = async (req, res) => {
         { contractors: req.contractorId },
         { _id: { $in: contractProjectIds } }
       ];
-    } else if (req.user?.role === 'User') {
+    } else if (req.user?.role === 'Client') {
       filter.customer = req.clientId;
     }
 
@@ -177,7 +177,7 @@ projectController.getProjectById = async (req, res) => {
       if (!isAssigned && !hasContract) {
         return res.status(403).json({ status: 403, message: "Access denied to this project" });
       }
-    } else if (req.user?.role === 'User') {
+    } else if (req.user?.role === 'Client') {
       if (project.customer?._id.toString() !== req.clientId?.toString()) {
         return res.status(403).json({ status: 403, message: "Access denied to this project" });
       }

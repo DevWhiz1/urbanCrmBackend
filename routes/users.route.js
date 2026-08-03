@@ -13,5 +13,6 @@ router.get("/get-single-user/:id", authorizeRoles('Admin'), userController.getSi
 router.put("/update-password/:id", userController.updatePassword);
 router.put("/force-update-password/:id", authorizeRoles('Admin'), userController.forceUpdatePassword);
 router.get("/get-all-users", authorizeRoles('Admin'), userController.getAllUsers);
+router.delete("/delete-user/:id", authorizeRoles('Admin'), userController.deleteUser);
 
 module.exports = router;
