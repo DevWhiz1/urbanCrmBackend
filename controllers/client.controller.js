@@ -165,6 +165,12 @@ clientController.deleteClient = async (req, res) => {
       });
     }
 
+    // Also delete the associated user
+    if (deletedClient.user) {
+      const User = require("../models/users.schema");
+      await User.findByIdAndDelete(deletedClient.user);
+    }
+
     res.status(200).json({
       status: 200,
       message: "Client deleted successfully",

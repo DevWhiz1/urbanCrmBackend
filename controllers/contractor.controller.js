@@ -169,6 +169,12 @@ contractorController.deleteContractor = async (req, res) => {
       });
     }
 
+    // Also delete the associated user
+    if (deletedContractor.user) {
+      const User = require("../models/users.schema");
+      await User.findByIdAndDelete(deletedContractor.user);
+    }
+
     res.status(200).json({
       status: 200,
       message: "Contractor deleted successfully",

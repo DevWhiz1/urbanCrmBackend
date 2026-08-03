@@ -141,6 +141,12 @@ userController.deleteUser = async (req, res) => {
     if (!deletedUser) {
       return res.status(404).json({ message: "User not found" });
     }
+
+    // Also delete any associated Client or Contractor
+    const Client = require("../models/client.schema");
+    const Contractor = require("../models/contractor.schema");
+    await Client.findOneAndDelete({ user: id });
+    await Contractor.findOneAndDelete({ user: id });
     return res.status(200).json({ message: "User permanently deleted successfully" });
   } catch (error) {
     console.error("Error deleting user:", error);
