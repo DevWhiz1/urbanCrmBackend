@@ -13,7 +13,7 @@ reportsController.getProjectReports = async (req, res) => {
     const { startDate, endDate, status, category } = req.query;
     
     // Build filter object
-    const filter = {};
+    const filter = { isDeleted: { $ne: true } };
     if (startDate && endDate) {
       filter.createdAt = {
         $gte: new Date(startDate),
@@ -79,7 +79,7 @@ reportsController.getContractorReports = async (req, res) => {
     const { startDate, endDate, contractorType, minRating } = req.query;
     
     // Build filter object
-    const filter = {};
+    const filter = { isDeleted: { $ne: true } };
     if (startDate && endDate) {
       filter.createdAt = {
         $gte: new Date(startDate),
@@ -147,7 +147,7 @@ reportsController.getClientReports = async (req, res) => {
     const { startDate, endDate, isActive } = req.query;
     
     // Build filter object
-    const filter = {};
+    const filter = { isDeleted: { $ne: true } };
     if (startDate && endDate) {
       filter.createdAt = {
         $gte: new Date(startDate),
@@ -207,7 +207,7 @@ reportsController.getPaymentReports = async (req, res) => {
     const { startDate, endDate, status, paymentType } = req.query;
     
     // Build filter object
-    const filter = {};
+    const filter = { isDeleted: { $ne: true } };
     if (startDate && endDate) {
       filter.createdAt = {
         $gte: new Date(startDate),

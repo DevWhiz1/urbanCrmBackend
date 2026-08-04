@@ -38,6 +38,9 @@ accountNumber: {
   },
   isActive: { type: Boolean, default: true },
   rating: { type: Number, min: 1, max: 5 },
+  isDeleted: { type: Boolean, default: false },
+  deletedAt: { type: Date },
+  deletedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
 
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date },

@@ -23,7 +23,7 @@ materialController.createMaterial = async (req, res) => {
 // Get all materials
 materialController.getAllMaterials = async (req, res) => {
   try {
-    const materials = await Material.find()
+    const materials = await Material.find({ isDeleted: { $ne: true } })
       .populate("project", "_id name");
     res.status(200).json({ data: materials });
   } catch (error) {
@@ -97,6 +97,33 @@ materialController.bulkImportMaterials = async (req, res) => {
     res.status(500).json({
       message: "Failed to bulk import material payments",
       error: error.message
+    });
+  }
+};
+
+// Soft delete a material
+materialController.deleteMaterial = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const materialToSoftDelete = await Material.findById(id);
+    if (!materialToSoftDelete) {
+      return res.status(404).json({ message: "Material not found" });
+    }
+
+    materialToSoftDelete.isDeleted = true;
+    materialToSoftDelete.deletedAt = new Date();
+    materialToSoftDelete.deletedBy = req.user ? (req.user.id || req.user._id) : null;
+    await materialToSoftDelete.save();
+
+    res.status(200).json({
+      message: "Material deleted successfully",
+      data: materialToSoftDelete,
+    });
+  } catch (error) {
+    res.status(500).json({
+      message: "Failed to delete material",
+      error: error.message,
     });
   }
 };

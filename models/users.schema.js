@@ -37,6 +37,9 @@ const userSchema = new mongoose.Schema({
     default: "Active",
     enum: ["Active", "InActive"],
   },
+  isDeleted: { type: Boolean, default: false },
+  deletedAt: { type: Date },
+  deletedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
 }, {
   timestamps: true
 });

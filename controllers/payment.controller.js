@@ -31,7 +31,7 @@ paymentController.createPayment = async (req, res) => {
 paymentController.getAllPayments = async (req, res) => {
   try {
     const { isPaginated, page, limit, skip } = getPaginationParams(req);
-    const matchStage = {};
+    const matchStage = { isDeleted: { $ne: true } };
 
     // Role-based scoping
     if (req.user?.role === 'Contractor') {
@@ -176,7 +176,7 @@ paymentController.getTotalPaymentForProject = async (req, res) => {
   try {
     const { projectId } = req.params;
     const result = await Payment.aggregate([
-      { $match: { project: new mongoose.Types.ObjectId(projectId) } },
+      { $match: { project: new mongoose.Types.ObjectId(projectId), isDeleted: { $ne: true } } },
       { $group: { _id: null, total: { $sum: "$amount" } } }
     ]);
     const total = result[0]?.total || 0;
@@ -191,7 +191,7 @@ paymentController.getPaymentsByProject = async (req, res) => {
   try {
     const { projectId } = req.params;
     const { type } = req.query;
-    let filter = { project: new mongoose.Types.ObjectId(projectId) };
+    let filter = { project: new mongoose.Types.ObjectId(projectId), isDeleted: { $ne: true } };
     if (type) filter.type = type;
 
     // Role-based scoping
@@ -228,7 +228,7 @@ paymentController.getProjectPaymentSummary = async (req, res) => {
     if (!project) {
       return res.status(404).json({ message: 'Project not found' });
     }
-    const payments = await Payment.find({ project: projectId });
+    const payments = await Payment.find({ project: projectId, isDeleted: { $ne: true } });
     const totalDebits = payments.filter(p => p.type === 'debit').reduce((sum, p) => sum + (p.amount || 0), 0);
     const net = project.totalPaymentReceived - totalDebits;
     res.json({ projectId, totalPaymentReceived: project.totalPaymentReceived, totalDebits, net, payments });
@@ -257,7 +257,7 @@ paymentController.getFullProjectFinancialSummary = async (req, res) => {
     if (!project) {
       return res.status(404).json({ message: 'Project not found' });
     }
-    const payments = await Payment.find({ project: projectId })
+    const payments = await Payment.find({ project: projectId, isDeleted: { $ne: true } })
       .populate('contractor', 'companyName')
       .populate('contract', 'contractType')
       .populate('createdBy', 'userName');
@@ -292,9 +292,14 @@ paymentController.getFullProjectFinancialSummary = async (req, res) => {
 paymentController.getProjectContractsByProject = async (req, res) => {
   try {
     const { projectId } = req.params;
-    const contracts = await ProjectContract.find({ project: projectId })
+    const contracts = await ProjectContract.find({ project: projectId, isDeleted: { $ne: true } })
       .populate('contractor', 'companyName')
-      .populate('project', 'name');
+      .populate('project', 'name')
+      .populate({
+        path: 'payments',
+        match: { isDeleted: { $ne: true } },
+        select: '_id'
+      });
     res.status(200).json({ projectId, contracts });
   } catch (error) {
     res.status(500).json({ message: 'Failed to fetch project contracts', error: error.message });
@@ -308,10 +313,10 @@ paymentController.getProjectContractSummary = async (req, res) => {
     const contract = await ProjectContract.findById(projectContractId)
       .populate('project', 'name')
       .populate('contractor', 'companyName');
-    if (!contract) {
+    if (!contract || contract.isDeleted) {
       return res.status(404).json({ message: 'Project contract not found' });
     }
-    const payments = await Payment.find({ contract: projectContractId })
+    const payments = await Payment.find({ contract: projectContractId, isDeleted: { $ne: true } })
       .populate('contractor', 'companyName')
       .populate('createdBy', 'userName');
     const additionsTotal = (contract.additions || []).reduce((sum, a) => sum + (a.amount || 0), 0);
@@ -481,6 +486,79 @@ paymentController.bulkImportProjectPayments = async (req, res) => {
     res.status(500).json({
       message: "Failed to bulk import project payments",
       error: error.message
+    });
+  }
+};
+
+// Update a payment
+paymentController.updatePayment = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const updateData = req.body;
+
+    const existingPayment = await Payment.findById(id);
+    if (!existingPayment) {
+      return res.status(404).json({ message: "Payment not found" });
+    }
+
+    // Check if amount is changed for a credit payment to adjust project totalPaymentReceived
+    if (existingPayment.type === 'credit' && updateData.amount !== undefined && updateData.amount !== existingPayment.amount) {
+      const difference = updateData.amount - existingPayment.amount;
+      await Project.findByIdAndUpdate(
+        existingPayment.project,
+        { $inc: { totalPaymentReceived: difference } }
+      );
+    }
+
+    const updatedPayment = await Payment.findByIdAndUpdate(
+      id,
+      updateData,
+      { new: true, runValidators: true }
+    );
+
+    res.status(200).json({
+      message: "Payment updated successfully",
+      payment: updatedPayment,
+    });
+  } catch (error) {
+    res.status(500).json({
+      message: "Failed to update payment",
+      error: error.message,
+    });
+  }
+};
+
+// Soft delete a payment
+paymentController.deletePayment = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const paymentToSoftDelete = await Payment.findById(id);
+    if (!paymentToSoftDelete) {
+      return res.status(404).json({ message: "Payment not found" });
+    }
+
+    paymentToSoftDelete.isDeleted = true;
+    paymentToSoftDelete.deletedAt = new Date();
+    paymentToSoftDelete.deletedBy = req.user ? (req.user.id || req.user._id) : null;
+    await paymentToSoftDelete.save();
+
+    // Revert totalPaymentReceived if it was a credit
+    if (paymentToSoftDelete.type === 'credit') {
+      await Project.findByIdAndUpdate(
+        paymentToSoftDelete.project,
+        { $inc: { totalPaymentReceived: -paymentToSoftDelete.amount } }
+      );
+    }
+
+    res.status(200).json({
+      message: "Payment deleted successfully",
+      data: paymentToSoftDelete,
+    });
+  } catch (error) {
+    res.status(500).json({
+      message: "Failed to delete payment",
+      error: error.message,
     });
   }
 };

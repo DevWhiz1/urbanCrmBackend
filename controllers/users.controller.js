@@ -7,7 +7,7 @@ const userController = {};
 
 userController.getAllUsers = async (req, res) => {
   try {
-    const filter = {};
+    const filter = { isDeleted: { $ne: true } };
     if (req.query.role) {
       filter.role = req.query.role;
     }
@@ -137,16 +137,25 @@ userController.forceUpdatePassword = async (req, res) => {
 userController.deleteUser = async (req, res) => {
   try {
     const id = req.params.id;
-    const deletedUser = await usersSchema.findByIdAndDelete(id);
-    if (!deletedUser) {
+    const userToSoftDelete = await usersSchema.findById(id);
+    if (!userToSoftDelete) {
       return res.status(404).json({ message: "User not found" });
     }
 
-    // Also delete any associated Client or Contractor
+    userToSoftDelete.isDeleted = true;
+    userToSoftDelete.deletedAt = new Date();
+    userToSoftDelete.deletedBy = req.user ? (req.user.id || req.user._id) : null;
+    userToSoftDelete.email = `${userToSoftDelete.email}_deleted_${Date.now()}`;
+    await userToSoftDelete.save();
+
+    // Also soft-delete any associated Client or Contractor
     const Client = require("../models/client.schema");
     const Contractor = require("../models/contractor.schema");
-    await Client.findOneAndDelete({ user: id });
-    await Contractor.findOneAndDelete({ user: id });
+    const updateObj = { isDeleted: true, deletedAt: new Date(), deletedBy: req.user ? (req.user.id || req.user._id) : null };
+    
+    await Client.findOneAndUpdate({ user: id }, updateObj);
+    await Contractor.findOneAndUpdate({ user: id }, updateObj);
+    
     return res.status(200).json({ message: "User permanently deleted successfully" });
   } catch (error) {
     console.error("Error deleting user:", error);

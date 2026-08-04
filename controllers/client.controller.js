@@ -26,7 +26,7 @@ clientController.createClient = async (req, res) => {
 // Get all clients with Scoping & Pagination
 clientController.getAllClients = async (req, res) => {
   try {
-    const filter = {};
+    const filter = { isDeleted: { $ne: true } };
 
     if (req.user?.role === 'Client' && req.clientId) {
       filter._id = req.clientId;
@@ -156,25 +156,37 @@ clientController.deleteClient = async (req, res) => {
       });
     }
 
-    const deletedClient = await Client.findByIdAndDelete(id);
+    const clientToSoftDelete = await Client.findById(id);
 
-    if (!deletedClient) {
+    if (!clientToSoftDelete) {
       return res.status(404).json({
         status: 404,
         message: "Client not found"
       });
     }
 
-    // Also delete the associated user
-    if (deletedClient.user) {
+    clientToSoftDelete.isDeleted = true;
+    clientToSoftDelete.deletedAt = new Date();
+    clientToSoftDelete.deletedBy = req.user ? (req.user.id || req.user._id) : null;
+    await clientToSoftDelete.save();
+
+    // Also soft-delete the associated user
+    if (clientToSoftDelete.user) {
       const User = require("../models/users.schema");
-      await User.findByIdAndDelete(deletedClient.user);
+      const userToSoftDelete = await User.findById(clientToSoftDelete.user);
+      if (userToSoftDelete) {
+        userToSoftDelete.isDeleted = true;
+        userToSoftDelete.deletedAt = new Date();
+        userToSoftDelete.deletedBy = req.user ? (req.user.id || req.user._id) : null;
+        userToSoftDelete.email = `${userToSoftDelete.email}_deleted_${Date.now()}`;
+        await userToSoftDelete.save();
+      }
     }
 
     res.status(200).json({
       status: 200,
       message: "Client deleted successfully",
-      data: deletedClient,
+      data: clientToSoftDelete,
     });
   } catch (error) {
     res.status(500).json({

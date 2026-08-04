@@ -26,7 +26,7 @@ contractorController.createContractor = async (req, res) => {
 // Get all contractors with Scoping & Pagination
 contractorController.getAllContractor = async (req, res) => {
   try {
-    const filter = {};
+    const filter = { isDeleted: { $ne: true } };
 
     if (req.user?.role === 'Contractor' && req.contractorId) {
       filter._id = req.contractorId;
@@ -160,25 +160,37 @@ contractorController.deleteContractor = async (req, res) => {
       });
     }
 
-    const deletedContractor = await Contractor.findByIdAndDelete(id);
+    const contractorToSoftDelete = await Contractor.findById(id);
 
-    if (!deletedContractor) {
+    if (!contractorToSoftDelete) {
       return res.status(404).json({
         status: 404,
         message: "Contractor not found"
       });
     }
 
-    // Also delete the associated user
-    if (deletedContractor.user) {
+    contractorToSoftDelete.isDeleted = true;
+    contractorToSoftDelete.deletedAt = new Date();
+    contractorToSoftDelete.deletedBy = req.user ? (req.user.id || req.user._id) : null;
+    await contractorToSoftDelete.save();
+
+    // Also soft-delete the associated user
+    if (contractorToSoftDelete.user) {
       const User = require("../models/users.schema");
-      await User.findByIdAndDelete(deletedContractor.user);
+      const userToSoftDelete = await User.findById(contractorToSoftDelete.user);
+      if (userToSoftDelete) {
+        userToSoftDelete.isDeleted = true;
+        userToSoftDelete.deletedAt = new Date();
+        userToSoftDelete.deletedBy = req.user ? (req.user.id || req.user._id) : null;
+        userToSoftDelete.email = `${userToSoftDelete.email}_deleted_${Date.now()}`;
+        await userToSoftDelete.save();
+      }
     }
 
     res.status(200).json({
       status: 200,
       message: "Contractor deleted successfully",
-      data: deletedContractor,
+      data: contractorToSoftDelete,
     });
   } catch (error) {
     res.status(500).json({

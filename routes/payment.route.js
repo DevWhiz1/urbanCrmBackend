@@ -28,4 +28,9 @@ router.get("/contracts/by-project/:projectId", paymentController.getProjectContr
 // Get summary and all payments for a specific project contract
 router.get("/contract-summary/:projectContractId", paymentController.getProjectContractSummary);
 
+// Update payment
+router.put("/update-payment/:id", authorizeRoles('Admin'), paymentController.updatePayment);
+// Delete payment
+router.delete("/delete-payment/:id", authorizeRoles('Admin'), paymentController.deletePayment);
+
 module.exports = router;

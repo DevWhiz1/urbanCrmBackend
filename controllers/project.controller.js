@@ -1,6 +1,8 @@
 const { default: mongoose } = require('mongoose');
 const projectModel = require('../models/project.schema');
 const { getPaginationParams, formatPaginatedResponse } = require('../utils/paginate');
+const ProjectContract = require('../models/projectContractSchema');
+const Payment = require('../models/payment.Schema');
 
 const projectController = {};
 
@@ -75,7 +77,7 @@ projectController.createProject = async (req, res) => {
 // Get all projects with Data Scoping & Pagination
 projectController.getAllProjects = async (req, res) => {
   try {
-    const filter = {};
+    const filter = { isDeleted: { $ne: true } };
 
     // Role-Based Data Scoping
     if (req.user?.role === 'Contractor') {
@@ -273,19 +275,34 @@ projectController.deleteProject = async (req, res) => {
       });
     }
 
-    const deletedProject = await projectModel.findByIdAndDelete(id);
+    const projectToSoftDelete = await projectModel.findById(id);
 
-    if (!deletedProject) {
+    if (!projectToSoftDelete) {
       return res.status(404).json({ 
         status: 404, 
         message: "Project not found" 
       });
     }
 
+    projectToSoftDelete.isDeleted = true;
+    projectToSoftDelete.deletedAt = new Date();
+    projectToSoftDelete.deletedBy = req.user ? (req.user.id || req.user._id) : null;
+    await projectToSoftDelete.save();
+
+    // Cascade soft-delete to Contracts and Payments
+    const updateObj = {
+      isDeleted: true,
+      deletedAt: new Date(),
+      deletedBy: req.user ? (req.user.id || req.user._id) : null
+    };
+    
+    await ProjectContract.updateMany({ project: id, isDeleted: { $ne: true } }, { $set: updateObj });
+    await Payment.updateMany({ project: id, isDeleted: { $ne: true } }, { $set: updateObj });
+
     res.status(200).json({ 
       status: 200, 
       message: "Project deleted successfully", 
-      data: deletedProject 
+      data: projectToSoftDelete 
     });
   } catch (error) {
     res.status(500).json({ 

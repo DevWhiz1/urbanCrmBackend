@@ -13,8 +13,8 @@ dashboardController.getDashboardStats = async (req, res) => {
     const now = new Date();
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
-    const projectFilter = {};
-    const paymentFilter = {};
+    const projectFilter = { isDeleted: { $ne: true } };
+    const paymentFilter = { isDeleted: { $ne: true } };
 
     if (req.user?.role === 'Contractor' && req.contractorId) {
       const contractProjectIds = await ProjectContract.find({ contractor: req.contractorId }).distinct('project');
@@ -39,10 +39,10 @@ dashboardController.getDashboardStats = async (req, res) => {
     const averageProjectValue = totalProjects > 0 ? totalRevenue / totalProjects : 0;
 
     // Contractors Statistics
-    const totalContractors = await Contractor.countDocuments();
-    const activeContractors = await Contractor.countDocuments({ isActive: true });
+    const totalContractors = await Contractor.countDocuments({ isDeleted: { $ne: true } });
+    const activeContractors = await Contractor.countDocuments({ isActive: true, isDeleted: { $ne: true } });
     
-    const contractorsWithRating = await Contractor.find({ rating: { $exists: true, $ne: null } }, 'rating');
+    const contractorsWithRating = await Contractor.find({ rating: { $exists: true, $ne: null }, isDeleted: { $ne: true } }, 'rating');
     const averageRating = contractorsWithRating.length > 0 
       ? contractorsWithRating.reduce((sum, contractor) => sum + contractor.rating, 0) / contractorsWithRating.length 
       : 0;
@@ -52,10 +52,11 @@ dashboardController.getDashboardStats = async (req, res) => {
       .sort({ rating: -1 });
 
     // Clients Statistics
-    const totalClients = await Client.countDocuments();
-    const activeClients = await Client.countDocuments({ isActive: true });
+    const totalClients = await Client.countDocuments({ isDeleted: { $ne: true } });
+    const activeClients = await Client.countDocuments({ isActive: true, isDeleted: { $ne: true } });
     const newClientsThisMonth = await Client.countDocuments({
-      createdAt: { $gte: startOfMonth }
+      createdAt: { $gte: startOfMonth },
+      isDeleted: { $ne: true }
     });
 
     // Payments Statistics

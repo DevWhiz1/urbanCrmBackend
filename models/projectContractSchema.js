@@ -32,7 +32,10 @@ const projectContractSchema = new mongoose.Schema({
   // Status
   isTerminated: { type: Boolean, default: false },
   Description: { type: String },
-
+  isActive: { type: Boolean, default: true },
+  isDeleted: { type: Boolean, default: false },
+  deletedAt: { type: Date },
+  deletedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
 }, { timestamps: true });
 
 const ProjectContract = mongoose.model('ProjectContract', projectContractSchema);
