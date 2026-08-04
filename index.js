@@ -15,7 +15,9 @@ const materialRoute = require('./routes/material.route');
 const dashboardRoute = require('./routes/dashboard.route');
 const reportsRoute = require('./routes/reports.route');
 const userRoute = require('./routes/users.route');
-
+const employeeRoute = require('./routes/employee.route');
+const expenseRoute = require('./routes/expense.route');
+const uploadRoute = require('./routes/upload.route');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
@@ -54,6 +56,9 @@ app.use('/api/payment', paymentRoute);
 app.use('/api/material', materialRoute);
 app.use('/api/dashboard', dashboardRoute);
 app.use('/api/reports', reportsRoute);
+app.use('/api/employee', employeeRoute);
+app.use('/api/expense', expenseRoute);
+app.use('/api/upload', uploadRoute);
 
 // Start Server
 app.listen(PORT, () => {

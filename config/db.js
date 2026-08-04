@@ -7,6 +7,16 @@ const connectDB = async () => {
     });
 
     console.log(`MongoDB Connected`);
+    
+    // Drop legacy indexes
+    try {
+      await mongoose.connection.collection('employees').dropIndex('employeeId_1');
+      console.log('Dropped employeeId_1 index');
+    } catch (e) {}
+    try {
+      await mongoose.connection.collection('expenses').dropIndex('expenseId_1');
+      console.log('Dropped expenseId_1 index');
+    } catch (e) {}
   } catch (error) {
     console.error(`MongoDB connection error: ${error.message}`);
     // Do not terminate a serverless function process. Terminating here turns

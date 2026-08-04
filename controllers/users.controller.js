@@ -54,6 +54,19 @@ userController.updateUser = async (req, res) => {
     if (!updateUser) {
       return res.status(400).json({ message: "Error in updating user" });
     }
+
+    // Sync Employee status
+    try {
+      const Employee = require("../models/employee.schema");
+      if (updateUser.status === 'InActive') {
+        await Employee.findOneAndUpdate({ email: updateUser.email }, { status: 'Inactive', isActive: false });
+      } else if (updateUser.status === 'Active') {
+        await Employee.findOneAndUpdate({ email: updateUser.email }, { status: 'Active', isActive: true });
+      }
+    } catch (err) {
+      console.log('Employee sync skipped:', err.message);
+    }
+
     res.status(200).json({ message: "User updated successfully", user: updateUser });
   } catch (error) {
     console.error("Error in updating user:", error);
@@ -142,19 +155,23 @@ userController.deleteUser = async (req, res) => {
       return res.status(404).json({ message: "User not found" });
     }
 
+    const originalEmail = userToSoftDelete.email;
+
     userToSoftDelete.isDeleted = true;
     userToSoftDelete.deletedAt = new Date();
     userToSoftDelete.deletedBy = req.user ? (req.user.id || req.user._id) : null;
     userToSoftDelete.email = `${userToSoftDelete.email}_deleted_${Date.now()}`;
     await userToSoftDelete.save();
 
-    // Also soft-delete any associated Client or Contractor
+    // Also soft-delete any associated Client, Contractor or Employee
     const Client = require("../models/client.schema");
     const Contractor = require("../models/contractor.schema");
+    const Employee = require("../models/employee.schema");
     const updateObj = { isDeleted: true, deletedAt: new Date(), deletedBy: req.user ? (req.user.id || req.user._id) : null };
     
     await Client.findOneAndUpdate({ user: id }, updateObj);
     await Contractor.findOneAndUpdate({ user: id }, updateObj);
+    await Employee.findOneAndUpdate({ email: originalEmail }, { isDeleted: true, isActive: false, deletedAt: new Date() });
     
     return res.status(200).json({ message: "User permanently deleted successfully" });
   } catch (error) {
