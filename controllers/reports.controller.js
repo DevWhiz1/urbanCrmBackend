@@ -10,10 +10,10 @@ const reportsController = {};
 // Get project reports
 reportsController.getProjectReports = async (req, res) => {
   try {
-    const { startDate, endDate, status, category } = req.query;
+    const { startDate, endDate, status, category, projectIds } = req.query;
     
     // Build filter object
-    const filter = { isDeleted: { $ne: true } };
+    const filter = { isDeleted: { $ne: true }, isActive: { $ne: false } };
     if (startDate && endDate) {
       filter.createdAt = {
         $gte: new Date(startDate),
@@ -26,27 +26,153 @@ reportsController.getProjectReports = async (req, res) => {
     if (category) {
       filter.projectCategory = category;
     }
+    
+    if (projectIds) {
+      const idsArray = Array.isArray(projectIds) ? projectIds : projectIds.split(',');
+      filter._id = { $in: idsArray.map(id => new mongoose.Types.ObjectId(id)) };
+    }
 
-    // Get projects with populated data
-    const projects = await Project.find(filter)
-      .populate({ path: 'customer', select: 'user paymentTerms bankDetails address phoneNumber isActive', populate: { path: 'user', select: 'userName email' } })
-      .populate({ path: 'contractors', select: 'companyName contractorType user paymentTerms bankDetails address phoneNumber', populate: { path: 'user', select: 'userName email' } })
-      .sort({ createdAt: -1 });
+    // Aggregation pipeline
+    const pipeline = [
+      { $match: filter },
+      // Lookup Materials
+      {
+        $lookup: {
+          from: 'materials',
+          localField: '_id',
+          foreignField: 'project',
+          pipeline: [
+            { $match: { isDeleted: { $ne: true }, isActive: { $ne: false } } }
+          ],
+          as: 'materials'
+        }
+      },
+      // Lookup Payments
+      {
+        $lookup: {
+          from: 'payments',
+          localField: '_id',
+          foreignField: 'project',
+          pipeline: [
+            { $match: { isDeleted: { $ne: true }, isActive: { $ne: false } } }
+          ],
+          as: 'payments'
+        }
+      },
+      // Lookup Expenses
+      {
+        $lookup: {
+          from: 'expenses',
+          localField: '_id',
+          foreignField: 'project',
+          pipeline: [
+            { $match: { isDeleted: { $ne: true }, isActive: { $ne: false } } }
+          ],
+          as: 'expenses'
+        }
+      },
+      // Lookup Customer
+      {
+        $lookup: {
+          from: 'clients',
+          localField: 'customer',
+          foreignField: '_id',
+          as: 'customerDetails'
+        }
+      },
+      { $unwind: { path: "$customerDetails", preserveNullAndEmptyArrays: true } },
+      
+      // Calculate Metrics per project
+      {
+        $addFields: {
+          materialCosts: { $sum: "$materials.totalAmount" },
+          contractorCosts: {
+            $sum: {
+              $map: {
+                input: {
+                  $filter: {
+                    input: "$payments",
+                    as: "p",
+                    cond: {
+                      $and: [
+                        { $eq: ["$$p.type", "debit"] },
+                        { $ne: ["$$p.contractor", null] },
+                        { $ne: ["$$p.contractor", undefined] }
+                      ]
+                    }
+                  }
+                },
+                as: "payment",
+                in: "$$payment.amount"
+              }
+            }
+          },
+          otherExpenses: { $sum: "$expenses.amount" },
+          totalCredit: {
+            $sum: {
+              $map: {
+                input: {
+                  $filter: {
+                    input: "$payments",
+                    as: "p",
+                    cond: { $eq: ["$$p.type", "credit"] }
+                  }
+                },
+                as: "payment",
+                in: "$$payment.amount"
+              }
+            }
+          }
+        }
+      },
+      {
+        $addFields: {
+          totalExpenses: { $add: ["$materialCosts", "$contractorCosts", "$otherExpenses"] },
+          pendingAmount: { $subtract: [{ $ifNull: ["$totalCost", 0] }, "$totalCredit"] }
+        }
+      },
+      {
+        $addFields: {
+          netVolume: { $subtract: ["$totalCredit", "$totalExpenses"] }
+        }
+      },
+      { $sort: { createdAt: -1 } }
+    ];
 
-    // Calculate statistics
+    const projects = await Project.aggregate(pipeline);
+
+    // Calculate overall statistics
     const totalProjects = projects.length;
     const totalRevenue = projects.reduce((sum, project) => sum + (project.totalCost || 0), 0);
     const averageProjectValue = totalProjects > 0 ? totalRevenue / totalProjects : 0;
     
-    const statusBreakdown = projects.reduce((acc, project) => {
-      acc[project.status] = (acc[project.status] || 0) + 1;
-      return acc;
-    }, {});
+    let totalOverallExpenses = 0;
+    let totalOverallCredit = 0;
+    let totalOverallMaterialCosts = 0;
+    let totalOverallContractorCosts = 0;
+    let totalOverallOtherExpenses = 0;
 
-    const categoryBreakdown = projects.reduce((acc, project) => {
-      acc[project.projectCategory] = (acc[project.projectCategory] || 0) + 1;
-      return acc;
-    }, {});
+    const statusBreakdown = {};
+    const categoryBreakdown = {};
+
+    projects.forEach(project => {
+      // Breakdown counts
+      statusBreakdown[project.status] = (statusBreakdown[project.status] || 0) + 1;
+      
+      if (project.projectCategory) {
+        categoryBreakdown[project.projectCategory] = (categoryBreakdown[project.projectCategory] || 0) + 1;
+      }
+
+      // Overall metrics sum
+      totalOverallExpenses += (project.totalExpenses || 0);
+      totalOverallCredit += (project.totalCredit || 0);
+      totalOverallMaterialCosts += (project.materialCosts || 0);
+      totalOverallContractorCosts += (project.contractorCosts || 0);
+      totalOverallOtherExpenses += (project.otherExpenses || 0);
+    });
+
+    const totalOverallPending = totalRevenue - totalOverallCredit;
+    const totalOverallNetVolume = totalOverallCredit - totalOverallExpenses;
 
     res.status(200).json({
       status: 200,
@@ -57,7 +183,14 @@ reportsController.getProjectReports = async (req, res) => {
           totalRevenue,
           averageProjectValue,
           statusBreakdown,
-          categoryBreakdown
+          categoryBreakdown,
+          totalExpenses: totalOverallExpenses,
+          totalCredit: totalOverallCredit,
+          materialCosts: totalOverallMaterialCosts,
+          contractorCosts: totalOverallContractorCosts,
+          otherExpenses: totalOverallOtherExpenses,
+          pendingAmount: totalOverallPending,
+          netVolume: totalOverallNetVolume
         },
         projects
       }
