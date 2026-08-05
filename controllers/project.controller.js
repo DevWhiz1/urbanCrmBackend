@@ -8,8 +8,28 @@ const projectController = {};
 
 // Generate project code helper function
 const generateProjectCode = async (name) => {
-  const count = await projectModel.countDocuments({ name: { $regex: new RegExp(`^${name}`, 'i') } });
-  return `${name.replace(/\s+/g, '').toUpperCase().substring(0, 3)}-${(count + 1).toString().padStart(3, '0')}`;
+  let prefix = name.replace(/\s+/g, '').toUpperCase().substring(0, 3);
+  if (prefix.length < 3) {
+    prefix = prefix.padEnd(3, 'X');
+  }
+
+  const count = await projectModel.countDocuments({ projectCode: { $regex: new RegExp(`^${prefix}-`, 'i') } });
+  let nextNumber = count + 1;
+  
+  let isUnique = false;
+  let projectCode = '';
+  
+  while (!isUnique) {
+    projectCode = `${prefix}-${nextNumber.toString().padStart(3, '0')}`;
+    const existing = await projectModel.findOne({ projectCode });
+    if (existing) {
+      nextNumber++;
+    } else {
+      isUnique = true;
+    }
+  }
+
+  return projectCode;
 };
 
 // Create a new project
