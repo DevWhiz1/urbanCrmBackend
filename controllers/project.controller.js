@@ -5,32 +5,9 @@ const ProjectContract = require('../models/projectContractSchema');
 const Payment = require('../models/payment.Schema');
 
 const projectController = {};
+const generateBusinessId = require('../utils/generateId');
 
-// Generate project code helper function
-const generateProjectCode = async (name) => {
-  let prefix = name.replace(/\s+/g, '').toUpperCase().substring(0, 3);
-  if (prefix.length < 3) {
-    prefix = prefix.padEnd(3, 'X');
-  }
 
-  const count = await projectModel.countDocuments({ projectCode: { $regex: new RegExp(`^${prefix}-`, 'i') } });
-  let nextNumber = count + 1;
-  
-  let isUnique = false;
-  let projectCode = '';
-  
-  while (!isUnique) {
-    projectCode = `${prefix}-${nextNumber.toString().padStart(3, '0')}`;
-    const existing = await projectModel.findOne({ projectCode });
-    if (existing) {
-      nextNumber++;
-    } else {
-      isUnique = true;
-    }
-  }
-
-  return projectCode;
-};
 
 // Create a new project
 projectController.createProject = async (req, res) => {
@@ -53,7 +30,7 @@ projectController.createProject = async (req, res) => {
       contracts
     } = req.body;
 
-    const projectCode = await generateProjectCode(name);
+    const projectCode = await generateBusinessId('PROJ');
     let calculatedTotalCost = 0;
     if (projectType === 'labourRate') {
       calculatedTotalCost = (labouRate || 0) * (totalCoverageArea || 0);

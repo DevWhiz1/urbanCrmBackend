@@ -1,5 +1,6 @@
 const { getPaginationParams, formatPaginatedResponse } = require('../utils/paginate');
 const Employee = require('../models/employee.schema');
+const generateBusinessId = require('../utils/generateId');
 
 const getEmployees = async (req, res) => {
   try {
@@ -74,6 +75,7 @@ const createEmployee = async (req, res) => {
       await newUser.save();
     }
 
+    employeeData.employeeId = await generateBusinessId('EMP');
     const newEmployee = new Employee(employeeData);
     await newEmployee.save();
     res.status(201).json(newEmployee);

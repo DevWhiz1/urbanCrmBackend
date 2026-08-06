@@ -4,6 +4,7 @@ const Material = require('../models/material.schema');
 const ProjectContract = require('../models/projectContractSchema');
 const mongoose = require('mongoose');
 const { getPaginationParams, formatPaginatedResponse } = require('../utils/paginate');
+const generateBusinessId = require('../utils/generateId');
 
 const paymentController = {};
 
@@ -11,6 +12,7 @@ const paymentController = {};
 paymentController.createPayment = async (req, res) => {
   try {
     const paymentData = req.body;
+    paymentData.paymentId = await generateBusinessId('PAY');
     console.log("Payment Data:", paymentData);
     const newPayment = new Payment(paymentData);
     const savedPayment = await newPayment.save();
@@ -150,6 +152,7 @@ paymentController.addPaymentForProject = async (req, res) => {
     if (!paymentData.project) {
       return res.status(400).json({ message: "Project ID is required in the body." });
     }
+    paymentData.paymentId = await generateBusinessId('PAY');
     const newPayment = new Payment(paymentData);
     const savedPayment = await newPayment.save();
     if (savedPayment.type === 'credit') {
@@ -241,8 +244,9 @@ paymentController.getProjectPaymentSummary = async (req, res) => {
 paymentController.getMaterialPaymentsByProject = async (req, res) => {
   try {
     const { projectId } = req.params;
+    const project = await Project.findById(projectId).select('netMaterialCost');
     const materials = await Material.find({ project: projectId });
-    const totalMaterialPayments = materials.reduce((sum, m) => sum + (m.totalAmount || 0), 0);
+    const totalMaterialPayments = project ? (project.netMaterialCost || 0) : 0;
     res.json({ projectId, totalMaterialPayments, materials });
   } catch (error) {
     res.status(500).json({ message: 'Failed to get material payments', error: error.message });
@@ -253,7 +257,7 @@ paymentController.getMaterialPaymentsByProject = async (req, res) => {
 paymentController.getFullProjectFinancialSummary = async (req, res) => {
   try {
     const { projectId } = req.params;
-    const project = await Project.findById(projectId).select('name totalPaymentReceived projectType totalCost additions');
+    const project = await Project.findById(projectId).select('name totalPaymentReceived projectType totalCost additions netMaterialCost materialPurchaseCost materialReturnAmount');
     if (!project) {
       return res.status(404).json({ message: 'Project not found' });
     }
@@ -262,8 +266,9 @@ paymentController.getFullProjectFinancialSummary = async (req, res) => {
       .populate('contract', 'contractType')
       .populate('createdBy', 'userName');
     const totalDebits = payments.filter(p => p.type === 'debit').reduce((sum, p) => sum + (p.amount || 0), 0);
-    const materials = await Material.find({ project: projectId });
-    const totalMaterialPayments = materials.reduce((sum, m) => sum + (m.totalAmount || 0), 0);
+    const materials = await Material.find({ project: projectId, isDeleted: { $ne: true } })
+      .populate('createdBy', 'userName');
+    const totalMaterialPayments = project.netMaterialCost || 0;
     const net = project.totalPaymentReceived - totalDebits - totalMaterialPayments;
     const additionsTotal = (project.additions || []).reduce((sum, a) => sum + (a.amount || 0), 0);
     const projectCost = project.totalCost || 0;
@@ -279,6 +284,8 @@ paymentController.getFullProjectFinancialSummary = async (req, res) => {
       totalPaymentReceived: project.totalPaymentReceived,
       totalDebits,
       totalMaterialPayments,
+      materialPurchaseCost: project.materialPurchaseCost || 0,
+      materialReturnAmount: project.materialReturnAmount || 0,
       net,
       payments,
       materials

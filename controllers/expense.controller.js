@@ -11,10 +11,34 @@ const getExpenses = async (req, res) => {
     if (req.query.expenseType && req.query.expenseType !== 'All') {
       filter.expenseType = req.query.expenseType;
     }
+
+    if (req.query.category && req.query.category !== 'All') {
+      filter.category = req.query.category;
+    }
+
+    if (req.query.project && req.query.project !== 'All') {
+      filter.project = req.query.project;
+    }
+
+    if (req.query.employee && req.query.employee !== 'All') {
+      filter.employee = req.query.employee;
+    }
+
+    if (req.query.dateFrom || req.query.dateTo) {
+      filter.date = {};
+      if (req.query.dateFrom) {
+        filter.date.$gte = new Date(req.query.dateFrom);
+      }
+      if (req.query.dateTo) {
+        const endDate = new Date(req.query.dateTo);
+        endDate.setHours(23, 59, 59, 999);
+        filter.date.$lte = endDate;
+      }
+    }
     
     if (req.query.search) {
       filter.$or = [
-        { vendorName: { $regex: req.query.search, $options: 'i' } },
+        { vendor: { $regex: req.query.search, $options: 'i' } },
         { description: { $regex: req.query.search, $options: 'i' } },
       ];
     }

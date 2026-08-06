@@ -25,10 +25,7 @@ const projectContractSchema = new mongoose.Schema({
   }],
   startDate: { type: Date, required: true },
   endDate: { type: Date },
-   payments: [{
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Payment'
-  }],
+
   // Status
   isTerminated: { type: Boolean, default: false },
   Description: { type: String },
@@ -36,7 +33,18 @@ const projectContractSchema = new mongoose.Schema({
   isDeleted: { type: Boolean, default: false },
   deletedAt: { type: Date },
   deletedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-}, { timestamps: true });
+}, { 
+  timestamps: true,
+  toJSON: { virtuals: true },
+  toObject: { virtuals: true }
+});
+
+projectContractSchema.virtual('payments', {
+  ref: 'Payment',
+  localField: '_id',
+  foreignField: 'contract',
+  justOne: false
+});
 
 const ProjectContract = mongoose.model('ProjectContract', projectContractSchema);
 module.exports = ProjectContract;

@@ -6,7 +6,8 @@ const getPaginationParams = (req) => {
     return { isPaginated: false, page: 1, limit: 0, skip: 0 };
   }
 
-  const limit = parseInt(limitQuery, 10) || 10;
+  const parsedLimit = parseInt(limitQuery, 10) || 10;
+  const limit = Math.min(Math.max(parsedLimit, 1), 100);
   const skip = (page - 1) * limit;
 
   return { isPaginated: true, page, limit, skip };

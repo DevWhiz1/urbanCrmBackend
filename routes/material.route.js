@@ -17,4 +17,7 @@ router.get('/get-all-material-payment', materialController.getAllMaterials);
 // Delete a material
 router.delete('/delete-material/:id', authorizeRoles('Admin'), materialController.deleteMaterial);
 
+// Update a material
+router.put('/update-material/:id', authorizeRoles('Admin'), materialController.updateMaterial);
+
 module.exports = router;

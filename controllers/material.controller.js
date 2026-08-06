@@ -1,4 +1,5 @@
 const Material = require("../models/material.schema");
+const Project = require("../models/project.schema");
 
 const materialController = {};
 
@@ -8,6 +9,19 @@ materialController.createMaterial = async (req, res) => {
     const materialData = req.body;
     const newMaterial = new Material(materialData);
     const savedMaterial = await newMaterial.save();
+    
+    // Update project cost
+    const project = await Project.findById(savedMaterial.project);
+    if (project) {
+      if (savedMaterial.transactionType === 'return') {
+        project.materialReturnAmount = (project.materialReturnAmount || 0) + savedMaterial.totalAmount;
+      } else {
+        project.materialPurchaseCost = (project.materialPurchaseCost || 0) + savedMaterial.totalAmount;
+      }
+      project.netMaterialCost = project.materialPurchaseCost - project.materialReturnAmount;
+      await project.save();
+    }
+
     res.status(201).json({
       message: "Material added successfully",
       material: savedMaterial,
@@ -24,7 +38,8 @@ materialController.createMaterial = async (req, res) => {
 materialController.getAllMaterials = async (req, res) => {
   try {
     const materials = await Material.find({ isDeleted: { $ne: true } })
-      .populate("project", "_id name");
+      .populate("project", "_id name")
+      .populate("createdBy", "userName");
     res.status(200).json({ data: materials });
   } catch (error) {
     res.status(500).json({
@@ -81,11 +96,29 @@ materialController.bulkImportMaterials = async (req, res) => {
         MaterialRate: parsedRate,
         totalAmount: parsedAmount,
         date: isNaN(parsedDate.getTime()) ? new Date() : parsedDate,
+        status: m.status || 'paid',
+        paymentMethod: m.paymentMethod || 'online',
+        receiptPhoto: m.receiptPhoto || '',
         createdBy: createdBy || undefined
       };
     });
 
     const savedMaterials = await Material.insertMany(materialsToInsert);
+
+    // Update project cost for bulk import
+    const projectDoc = await Project.findById(project);
+    if (projectDoc) {
+      let purchaseCostToAdd = 0;
+      let returnAmountToAdd = 0;
+      savedMaterials.forEach(m => {
+         if (m.transactionType === 'return') returnAmountToAdd += m.totalAmount;
+         else purchaseCostToAdd += m.totalAmount;
+      });
+      projectDoc.materialPurchaseCost = (projectDoc.materialPurchaseCost || 0) + purchaseCostToAdd;
+      projectDoc.materialReturnAmount = (projectDoc.materialReturnAmount || 0) + returnAmountToAdd;
+      projectDoc.netMaterialCost = projectDoc.materialPurchaseCost - projectDoc.materialReturnAmount;
+      await projectDoc.save();
+    }
 
     res.status(201).json({
       message: `Successfully imported ${savedMaterials.length} material payments`,
@@ -116,6 +149,18 @@ materialController.deleteMaterial = async (req, res) => {
     materialToSoftDelete.deletedBy = req.user ? (req.user.id || req.user._id) : null;
     await materialToSoftDelete.save();
 
+    // Revert project cost
+    const project = await Project.findById(materialToSoftDelete.project);
+    if (project) {
+      if (materialToSoftDelete.transactionType === 'return') {
+        project.materialReturnAmount = (project.materialReturnAmount || 0) - materialToSoftDelete.totalAmount;
+      } else {
+        project.materialPurchaseCost = (project.materialPurchaseCost || 0) - materialToSoftDelete.totalAmount;
+      }
+      project.netMaterialCost = project.materialPurchaseCost - project.materialReturnAmount;
+      await project.save();
+    }
+
     res.status(200).json({
       message: "Material deleted successfully",
       data: materialToSoftDelete,
@@ -123,6 +168,58 @@ materialController.deleteMaterial = async (req, res) => {
   } catch (error) {
     res.status(500).json({
       message: "Failed to delete material",
+      error: error.message,
+    });
+  }
+};
+
+// Update a material
+materialController.updateMaterial = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const updateData = req.body;
+    
+    const oldMaterial = await Material.findById(id);
+    if (!oldMaterial) {
+      return res.status(404).json({ message: "Material not found" });
+    }
+    
+    // If totalAmount is not directly provided but qty/rate are, calculate it
+    if (updateData.MaterialQuantity && updateData.MaterialRate && !updateData.totalAmount) {
+       updateData.totalAmount = updateData.MaterialQuantity * updateData.MaterialRate;
+    }
+    
+    const updatedMaterial = await Material.findByIdAndUpdate(id, updateData, { new: true });
+    
+    // Adjust project cost if project is still the same
+    if (oldMaterial.project.toString() === updatedMaterial.project.toString()) {
+      const project = await Project.findById(oldMaterial.project);
+      if (project) {
+        // Revert old
+        if (oldMaterial.transactionType === 'return') {
+          project.materialReturnAmount = (project.materialReturnAmount || 0) - oldMaterial.totalAmount;
+        } else {
+          project.materialPurchaseCost = (project.materialPurchaseCost || 0) - oldMaterial.totalAmount;
+        }
+        
+        // Apply new
+        if (updatedMaterial.transactionType === 'return') {
+          project.materialReturnAmount = (project.materialReturnAmount || 0) + updatedMaterial.totalAmount;
+        } else {
+          project.materialPurchaseCost = (project.materialPurchaseCost || 0) + updatedMaterial.totalAmount;
+        }
+        project.netMaterialCost = project.materialPurchaseCost - project.materialReturnAmount;
+        await project.save();
+      }
+    }
+
+    res.status(200).json({
+      message: "Material updated successfully",
+      data: updatedMaterial,
+    });
+  } catch (error) {
+    res.status(500).json({
+      message: "Failed to update material",
       error: error.message,
     });
   }

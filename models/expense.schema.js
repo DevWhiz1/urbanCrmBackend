@@ -58,4 +58,11 @@ const expenseSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+expenseSchema.index({ isDeleted: 1, createdAt: -1 });
+expenseSchema.index({ isDeleted: 1, date: -1 });
+expenseSchema.index({ isDeleted: 1, expenseType: 1 });
+expenseSchema.index({ isDeleted: 1, category: 1 });
+expenseSchema.index({ isDeleted: 1, project: 1 });
+expenseSchema.index({ isDeleted: 1, employee: 1 });
+
 module.exports = mongoose.model('Expense', expenseSchema);

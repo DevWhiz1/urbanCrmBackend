@@ -23,6 +23,9 @@ const projectSchema = new mongoose.Schema({
   totalCoverageArea: { type: Number },
   totalCost: { type: Number },
   labouRate: { type: Number },
+  materialPurchaseCost: { type: Number, default: 0 },
+  materialReturnAmount: { type: Number, default: 0 },
+  netMaterialCost: { type: Number, default: 0 },
   additions: [{
     amount: { type: Number, required: true },
     reason: { type: String, required: true },

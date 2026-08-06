@@ -6,6 +6,10 @@ const paymentSchema = new mongoose.Schema({
     ref: 'Project',
     required: true
   },
+  paymentId: {
+    type: String,
+    unique: true
+  },
   contractor: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Contractor',
