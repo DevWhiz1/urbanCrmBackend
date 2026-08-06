@@ -193,12 +193,20 @@ paymentController.getTotalPaymentForProject = async (req, res) => {
 paymentController.getPaymentsByProject = async (req, res) => {
   try {
     const { projectId } = req.params;
-    const { type, contract, method, status } = req.query;
+    const { type, contract, method, status, contractor, startDate, endDate } = req.query;
     let filter = { project: new mongoose.Types.ObjectId(projectId), isDeleted: { $ne: true } };
     if (type) filter.type = type;
     if (contract) filter.contract = new mongoose.Types.ObjectId(contract);
+    if (contractor) filter.contractor = new mongoose.Types.ObjectId(contractor);
     if (method) filter.paymentMethod = method;
     if (status) filter.status = status;
+    
+    if (startDate || endDate) {
+      filter.date = {};
+      if (startDate) filter.date.$gte = new Date(startDate);
+      if (endDate) filter.date.$lte = new Date(endDate);
+    }
+
 
     // Role-based scoping
     if (req.user?.role === 'Contractor' && req.contractorId) {

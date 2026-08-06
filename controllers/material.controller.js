@@ -54,11 +54,18 @@ materialController.getMaterialsByProject = async (req, res) => {
   try {
     const { getPaginationParams, formatPaginatedResponse } = require('../utils/paginate');
     const { projectId } = req.params;
-    const { type } = req.query;
+    const { type, provider, startDate, endDate } = req.query;
     
     let filter = { project: projectId, isDeleted: { $ne: true } };
     
     if (type) filter.transactionType = type;
+    if (provider) filter.materialProvider = { $regex: new RegExp(`^${provider}$`, 'i') }; // Exact match or simple case-insensitive
+    
+    if (startDate || endDate) {
+      filter.date = {};
+      if (startDate) filter.date.$gte = new Date(startDate);
+      if (endDate) filter.date.$lte = new Date(endDate);
+    }
     
     if (req.query.search) {
       const searchTerm = req.query.search;
