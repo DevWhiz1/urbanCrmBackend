@@ -19,5 +19,7 @@ router.put('/update-project/:id', authorizeRoles('Admin'), projectController.upd
 router.delete('/delete-project/:id', authorizeRoles('Admin'), projectController.deleteProject);
 // Add price addition to project (Admin only)
 router.post('/add-addition/:id', authorizeRoles('Admin'), projectController.addProjectAddition);
+// Get contractors for a specific project
+router.get('/get-project-contractors/:id', projectController.getProjectContractors);
 
 module.exports = router;

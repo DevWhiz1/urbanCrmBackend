@@ -32,20 +32,57 @@ clientController.getAllClients = async (req, res) => {
       filter._id = req.clientId;
     }
 
+    if (req.query.search) {
+      const searchTerm = req.query.search;
+      
+      const User = require('../models/users.schema');
+      const matchingUsers = await User.find({
+        $or: [
+          { userName: { $regex: searchTerm, $options: 'i' } },
+          { email: { $regex: searchTerm, $options: 'i' } }
+        ]
+      }).select('_id');
+      const userIds = matchingUsers.map(u => u._id);
+
+      filter.$or = [
+        { phoneNumber: { $regex: searchTerm, $options: 'i' } },
+        { address: { $regex: searchTerm, $options: 'i' } },
+        { paymentTerms: { $regex: searchTerm, $options: 'i' } },
+        { user: { $in: userIds } }
+      ];
+    }
+
     const { isPaginated, page, limit, skip } = getPaginationParams(req);
     const total = await Client.countDocuments(filter);
 
-    let query = Client.find(filter)
-      .populate('user', 'userName email phoneNumber address status')
-      .sort({ createdAt: -1 });
+    let query;
 
-    if (isPaginated && limit > 0) {
-      query = query.skip(skip).limit(limit);
+    if (req.query.basic === 'true') {
+      // Basic query for dropdowns - unpaginated, minimal fields
+      query = Client.find(filter)
+        .select('_id user isActive')
+        .populate('user', 'userName email')
+        .sort({ createdAt: -1 });
+      
+      const clients = await query;
+      return res.status(200).json({
+        status: 200,
+        data: clients,
+      });
+    } else {
+      // Standard query with full population and pagination
+      query = Client.find(filter)
+        .populate('user', 'userName email phoneNumber address status')
+        .sort({ createdAt: -1 });
+
+      if (isPaginated && limit > 0) {
+        query = query.skip(skip).limit(limit);
+      }
+
+      const clients = await query;
+      const response = formatPaginatedResponse(clients, total, page, limit);
+      return res.status(200).json(response);
     }
-
-    const clients = await query;
-    const response = formatPaginatedResponse(clients, total, page, limit);
-    res.status(200).json(response);
   } catch (error) {
     res.status(500).json({
       status: 500,

@@ -11,6 +11,9 @@ userController.getAllUsers = async (req, res) => {
     if (req.query.role) {
       filter.role = req.query.role;
     }
+    if (req.query.status) {
+      filter.status = req.query.status;
+    }
     if (req.query.search) {
       filter.$or = [
         { userName: { $regex: req.query.search, $options: "i" } },

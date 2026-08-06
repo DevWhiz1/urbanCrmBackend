@@ -34,7 +34,7 @@ materialController.createMaterial = async (req, res) => {
   }
 };
 
-// Get all materials
+// Get all materials (legacy, unpaginated)
 materialController.getAllMaterials = async (req, res) => {
   try {
     const materials = await Material.find({ isDeleted: { $ne: true } })
@@ -46,6 +46,52 @@ materialController.getAllMaterials = async (req, res) => {
       message: "Failed to fetch materials",
       error: error.message,
     });
+  }
+};
+
+// Get materials by project with pagination and search
+materialController.getMaterialsByProject = async (req, res) => {
+  try {
+    const { getPaginationParams, formatPaginatedResponse } = require('../utils/paginate');
+    const { projectId } = req.params;
+    const { type } = req.query;
+    
+    let filter = { project: projectId, isDeleted: { $ne: true } };
+    
+    if (type) filter.transactionType = type;
+    
+    if (req.query.search) {
+      const searchTerm = req.query.search;
+      filter.$or = [
+        { materialDetail: { $regex: searchTerm, $options: 'i' } },
+        { materialProvider: { $regex: searchTerm, $options: 'i' } }
+      ];
+    }
+
+    const { isPaginated, page, limit, skip } = getPaginationParams(req);
+    const total = await Material.countDocuments(filter);
+
+    let sortOptions = { createdAt: -1 };
+    if (req.query.sort) {
+      if (req.query.sort === 'date_desc') sortOptions = { date: -1 };
+      else if (req.query.sort === 'date_asc') sortOptions = { date: 1 };
+      else if (req.query.sort === 'amount_desc') sortOptions = { totalAmount: -1 };
+      else if (req.query.sort === 'amount_asc') sortOptions = { totalAmount: 1 };
+    }
+
+    let query = Material.find(filter)
+      .populate("createdBy", "userName")
+      .sort(sortOptions);
+
+    if (isPaginated && limit > 0) {
+      query = query.skip(skip).limit(limit);
+    }
+
+    const materials = await query;
+    const response = formatPaginatedResponse(materials, total, page, limit);
+    res.status(200).json(response);
+  } catch (error) {
+    res.status(500).json({ message: 'Failed to fetch materials by project', error: error.message });
   }
 };
 

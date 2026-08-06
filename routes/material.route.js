@@ -14,6 +14,9 @@ router.post('/bulk-import', authorizeRoles('Admin'), materialController.bulkImpo
 // Get all materials
 router.get('/get-all-material-payment', materialController.getAllMaterials);
 
+// Get materials by project
+router.get('/project/:projectId', materialController.getMaterialsByProject);
+
 // Delete a material
 router.delete('/delete-material/:id', authorizeRoles('Admin'), materialController.deleteMaterial);
 

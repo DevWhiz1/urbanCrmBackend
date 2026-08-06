@@ -33,23 +33,55 @@ contractorController.getAllContractor = async (req, res) => {
     }
 
     if (req.query.search) {
-      filter.companyName = { $regex: req.query.search, $options: 'i' };
+      const searchTerm = req.query.search;
+      
+      // Find matching users first
+      const User = require('../models/users.schema');
+      const matchingUsers = await User.find({
+        $or: [
+          { userName: { $regex: searchTerm, $options: 'i' } },
+          { email: { $regex: searchTerm, $options: 'i' } }
+        ]
+      }).select('_id');
+      const userIds = matchingUsers.map(u => u._id);
+
+      filter.$or = [
+        { companyName: { $regex: searchTerm, $options: 'i' } },
+        { contractorType: { $regex: searchTerm, $options: 'i' } },
+        { user: { $in: userIds } }
+      ];
     }
 
     const { isPaginated, page, limit, skip } = getPaginationParams(req);
     const total = await Contractor.countDocuments(filter);
 
-    let query = Contractor.find(filter)
-      .populate('user', 'userName email phoneNumber address status')
-      .sort({ createdAt: -1 });
+    let query;
 
-    if (isPaginated && limit > 0) {
-      query = query.skip(skip).limit(limit);
+    if (req.query.basic === 'true') {
+      filter.isActive = true;
+      query = Contractor.find(filter)
+        .select('_id companyName contractorType user isActive')
+        .populate('user', 'userName email')
+        .sort({ createdAt: -1 });
+
+      const contractors = await query;
+      return res.status(200).json({
+        status: 200,
+        data: contractors,
+      });
+    } else {
+      query = Contractor.find(filter)
+        .populate('user', 'userName email phoneNumber address status')
+        .sort({ createdAt: -1 });
+
+      if (isPaginated && limit > 0) {
+        query = query.skip(skip).limit(limit);
+      }
+
+      const contractors = await query;
+      const response = formatPaginatedResponse(contractors, total, page, limit);
+      return res.status(200).json(response);
     }
-
-    const contractors = await query;
-    const response = formatPaginatedResponse(contractors, total, page, limit);
-    res.status(200).json(response);
   } catch (error) {
     res.status(500).json({
       status: 500,

@@ -106,18 +106,35 @@ projectController.getAllProjects = async (req, res) => {
     const { isPaginated, page, limit, skip } = getPaginationParams(req);
     const total = await projectModel.countDocuments(filter);
 
-    let query = projectModel.find(filter)
-      .populate({ path: 'customer', select: 'user paymentTerms bankDetails address phoneNumber isActive', populate: { path: 'user', select: 'userName email' } })
-      .populate({ path: 'contractors', select: 'user companyName contractorType paymentTerms bankDetails address phoneNumber', populate: { path: 'user', select: 'userName email' } })
-      .sort({ createdAt: -1 });
+    let query;
 
-    if (isPaginated && limit > 0) {
-      query = query.skip(skip).limit(limit);
+    if (req.query.basic === 'true') {
+      // Add isActive constraint for basic dropdowns
+      filter.isActive = true;
+      
+      query = projectModel.find(filter)
+        .select('_id name projectCode status')
+        .sort({ createdAt: -1 });
+
+      const projects = await query;
+      return res.status(200).json({
+        status: 200,
+        data: projects,
+      });
+    } else {
+      query = projectModel.find(filter)
+        .populate({ path: 'customer', select: 'user paymentTerms bankDetails address phoneNumber isActive', populate: { path: 'user', select: 'userName email' } })
+        .populate({ path: 'contractors', select: 'user companyName contractorType paymentTerms bankDetails address phoneNumber', populate: { path: 'user', select: 'userName email' } })
+        .sort({ createdAt: -1 });
+
+      if (isPaginated && limit > 0) {
+        query = query.skip(skip).limit(limit);
+      }
+
+      const projects = await query;
+      const response = formatPaginatedResponse(projects, total, page, limit);
+      return res.status(200).json(response);
     }
-
-    const projects = await query;
-    const response = formatPaginatedResponse(projects, total, page, limit);
-    res.status(200).json(response);
   } catch (error) {
     res.status(500).json({ 
       status: 500, 
@@ -377,6 +394,41 @@ projectController.addProjectAddition = async (req, res) => {
       status: 200,
       message: "Price addition added successfully",
       data: updatedProject
+    });
+  } catch (error) {
+    res.status(500).json({ status: 500, message: "Internal server error", error: error.message });
+  }
+};
+
+// Get contractors for a specific project
+projectController.getProjectContractors = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ status: 400, message: "Invalid project ID" });
+    }
+
+    const project = await projectModel.findOne({ _id: id, isDeleted: { $ne: true } })
+      .select('contractors')
+      .populate({
+        path: 'contractors',
+        match: { isDeleted: { $ne: true } },
+        select: '_id companyName contractorType user isActive',
+        populate: { path: 'user', select: 'userName email' }
+      });
+
+    if (!project) {
+      return res.status(404).json({ status: 404, message: "Project not found or deleted" });
+    }
+
+    // Filter out any contractors that were populated but might have isActive: false (if we wanted to strictly enforce isActive here too)
+    const activeContractors = project.contractors;
+
+    res.status(200).json({
+      status: 200,
+      message: "Project contractors retrieved successfully",
+      data: activeContractors
     });
   } catch (error) {
     res.status(500).json({ status: 500, message: "Internal server error", error: error.message });

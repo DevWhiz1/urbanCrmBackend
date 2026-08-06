@@ -193,23 +193,56 @@ paymentController.getTotalPaymentForProject = async (req, res) => {
 paymentController.getPaymentsByProject = async (req, res) => {
   try {
     const { projectId } = req.params;
-    const { type } = req.query;
+    const { type, contract, method, status } = req.query;
     let filter = { project: new mongoose.Types.ObjectId(projectId), isDeleted: { $ne: true } };
     if (type) filter.type = type;
+    if (contract) filter.contract = new mongoose.Types.ObjectId(contract);
+    if (method) filter.paymentMethod = method;
+    if (status) filter.status = status;
 
     // Role-based scoping
     if (req.user?.role === 'Contractor' && req.contractorId) {
       filter.contractor = new mongoose.Types.ObjectId(req.contractorId);
     }
 
+    if (req.query.search) {
+      const searchTerm = req.query.search;
+      
+      const Contractor = require('../models/contractor.schema');
+      const matchingContractors = await Contractor.find({
+        companyName: { $regex: searchTerm, $options: 'i' }
+      }).select('_id');
+      const contractorIds = matchingContractors.map(c => c._id);
+
+      filter.$or = [
+        { workDescription: { $regex: searchTerm, $options: 'i' } },
+        { notes: { $regex: searchTerm, $options: 'i' } },
+        { paymentMethod: { $regex: searchTerm, $options: 'i' } },
+        { contractor: { $in: contractorIds } }
+      ];
+      
+      // Also check if search term is a number for amount
+      if (!isNaN(parseFloat(searchTerm))) {
+        filter.$or.push({ amount: parseFloat(searchTerm) });
+      }
+    }
+
     const { isPaginated, page, limit, skip } = getPaginationParams(req);
     const total = await Payment.countDocuments(filter);
+
+    let sortOptions = { createdAt: -1 };
+    if (req.query.sort) {
+      if (req.query.sort === 'date_desc') sortOptions = { date: -1 };
+      else if (req.query.sort === 'date_asc') sortOptions = { date: 1 };
+      else if (req.query.sort === 'amount_desc') sortOptions = { amount: -1 };
+      else if (req.query.sort === 'amount_asc') sortOptions = { amount: 1 };
+    }
 
     let query = Payment.find(filter)
       .populate('contractor', 'companyName')
       .populate('contract', 'contractType')
       .populate('createdBy', 'userName')
-      .sort({ createdAt: -1 });
+      .sort(sortOptions);
 
     if (isPaginated && limit > 0) {
       query = query.skip(skip).limit(limit);
@@ -261,18 +294,19 @@ paymentController.getFullProjectFinancialSummary = async (req, res) => {
     if (!project) {
       return res.status(404).json({ message: 'Project not found' });
     }
-    const payments = await Payment.find({ project: projectId, isDeleted: { $ne: true } })
-      .populate('contractor', 'companyName')
-      .populate('contract', 'contractType')
-      .populate('createdBy', 'userName');
+    // Calculate totals without returning full arrays
+    const payments = await Payment.find({ project: projectId, isDeleted: { $ne: true } }).select('type amount');
     const totalDebits = payments.filter(p => p.type === 'debit').reduce((sum, p) => sum + (p.amount || 0), 0);
-    const materials = await Material.find({ project: projectId, isDeleted: { $ne: true } })
-      .populate('createdBy', 'userName');
+    
+    // We already have project.netMaterialCost for material payments
     const totalMaterialPayments = project.netMaterialCost || 0;
+    const totalMaterialCount = await Material.countDocuments({ project: projectId, isDeleted: { $ne: true } });
+    
     const net = project.totalPaymentReceived - totalDebits - totalMaterialPayments;
     const additionsTotal = (project.additions || []).reduce((sum, a) => sum + (a.amount || 0), 0);
     const projectCost = project.totalCost || 0;
     const baseProjectCost = Math.max(0, projectCost - additionsTotal);
+    
     res.json({
       projectId,
       projectName: project.name,
@@ -283,12 +317,12 @@ paymentController.getFullProjectFinancialSummary = async (req, res) => {
       additions: project.additions || [],
       totalPaymentReceived: project.totalPaymentReceived,
       totalDebits,
+      totalPaymentCount: payments.length,
       totalMaterialPayments,
+      totalMaterialCount,
       materialPurchaseCost: project.materialPurchaseCost || 0,
       materialReturnAmount: project.materialReturnAmount || 0,
-      net,
-      payments,
-      materials
+      net
     });
   } catch (error) {
     res.status(500).json({ message: 'Failed to get full project financial summary', error: error.message });
@@ -323,9 +357,7 @@ paymentController.getProjectContractSummary = async (req, res) => {
     if (!contract || contract.isDeleted) {
       return res.status(404).json({ message: 'Project contract not found' });
     }
-    const payments = await Payment.find({ contract: projectContractId, isDeleted: { $ne: true } })
-      .populate('contractor', 'companyName')
-      .populate('createdBy', 'userName');
+    const payments = await Payment.find({ contract: projectContractId, isDeleted: { $ne: true } }).select('type amount');
     const additionsTotal = (contract.additions || []).reduce((sum, a) => sum + (a.amount || 0), 0);
     const revisedTotalAmount = (contract.totalAmount || 0) + additionsTotal;
     const totalPayments = payments.filter(p => p.type === 'debit').reduce((sum, p) => sum + (p.amount || 0), 0);
@@ -340,8 +372,8 @@ paymentController.getProjectContractSummary = async (req, res) => {
       additionsTotal,
       additions: contract.additions || [],
       totalPayments,
+      totalPaymentCount: payments.length,
       net,
-      payments,
       contract
     });
   } catch (error) {
