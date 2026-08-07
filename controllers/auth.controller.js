@@ -5,11 +5,10 @@ const emailService = require("../service/email.service.js");
 
 const authController = {}
 
-// ─── Cookie Options ───────────────────────────────────────────────────────────
 const cookieOptions = {
   httpOnly: true,
-  secure: process.env.NODE_ENV === "production",
-  sameSite: process.env.NODE_ENV === "production" ? "strict" : "lax",
+  secure: process.env.NODE_ENV === "production",       // HTTPS only in production
+  sameSite: process.env.NODE_ENV === "production" ? "none" : "lax", // 'none' for cross-origin
   maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
 };
 
@@ -135,11 +134,8 @@ authController.getMe = async (req, res) => {
 // ─── Logout ───────────────────────────────────────────────────────────────────
 authController.logout = async (req, res) => {
   try {
-    res.clearCookie("token", {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: process.env.NODE_ENV === "production" ? "strict" : "lax",
-    });
+    // Must pass same options as when cookie was set so the browser clears it correctly
+    res.clearCookie("token", cookieOptions);
     return res.status(200).json({ message: "Logged out successfully" });
   } catch (error) {
     console.error(error);
