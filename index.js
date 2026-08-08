@@ -2,9 +2,37 @@ const express = require('express');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
 const dotenv = require('dotenv');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 const connectDB = require('./config/db');
 
 dotenv.config();
+
+// ─── Rate Limiters ────────────────────────────────────────────────────────────
+
+// Strict limiter for authentication routes (blocks brute-force attacks)
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10,                  // max 10 attempts per IP per window
+  standardHeaders: true,    // Return rate limit info in RateLimit-* headers
+  legacyHeaders: false,
+  message: {
+    status: 429,
+    message: 'Too many login attempts. Please try again after 15 minutes.',
+  },
+});
+
+// Moderate limiter for all other API routes
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 150,                 // max 150 requests per IP per window
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    status: 429,
+    message: 'Too many requests. Please slow down and try again shortly.',
+  },
+});
 
 const authRoute = require('./routes/auth.route');
 const projectRoute = require('./routes/project.route');
@@ -26,7 +54,15 @@ const PORT = process.env.PORT || 5000;
 // Connect Database
 connectDB();
 
-// Middleware
+// ─── Security Middleware ──────────────────────────────────────────────────────
+
+// Helmet: sets secure HTTP response headers (XSS protection, HSTS, no-sniff, etc.)
+app.use(helmet());
+
+// Apply general rate limiter to all API routes
+app.use('/api', apiLimiter);
+
+// ─── CORS ─────────────────────────────────────────────────────────────────────
 const allowedOrigins = [
   "http://localhost:5173",
   "http://localhost:3000",
@@ -66,7 +102,7 @@ app.get('/', (req, res) => {
 });
 
 // API Routes
-app.use('/api/auth', authRoute);
+app.use('/api/auth', authLimiter, authRoute); // strict rate limit on auth
 app.use('/api/user', userRoute);
 app.use('/api/project', projectRoute);
 app.use('/api/contractor', contractor);
