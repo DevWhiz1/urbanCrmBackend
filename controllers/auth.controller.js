@@ -8,8 +8,8 @@ const authController = {}
 
 const cookieOptions = {
   httpOnly: true,
-  secure: process.env.NODE_ENV === "production",       // HTTPS only in production
-  sameSite: process.env.NODE_ENV === "production" ? "none" : "lax", // 'none' for cross-origin
+  secure: true, // Always true for HTTPS deployments
+  sameSite: "none", // Always 'none' for cross-origin frontend-backend
   maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
 };
 
