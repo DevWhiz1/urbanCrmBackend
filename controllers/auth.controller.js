@@ -2,6 +2,7 @@ const User = require("../models/users.schema.js");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const emailService = require("../service/email.service.js");
+const { invalidateUser } = require("../utils/authCache");
 
 const authController = {}
 
@@ -112,7 +113,7 @@ authController.getMe = async (req, res) => {
     // req.user is populated by authenticateToken middleware
     const user = await User.findById(req.user.userId).select("-password -plainPassword -accessToken");
 
-    if (!user) {
+    if (!user || user.isDeleted) {
       return res.status(404).json({ message: "User not found" });
     }
 
@@ -134,6 +135,12 @@ authController.getMe = async (req, res) => {
 // ─── Logout ───────────────────────────────────────────────────────────────────
 authController.logout = async (req, res) => {
   try {
+    // Invalidate both caches immediately so stale data is never served
+    // after this user's session ends
+    if (req.user?.userId) {
+      invalidateUser(req.user.userId);
+    }
+
     // Must pass same options as when cookie was set so the browser clears it correctly
     res.clearCookie("token", cookieOptions);
     return res.status(200).json({ message: "Logged out successfully" });

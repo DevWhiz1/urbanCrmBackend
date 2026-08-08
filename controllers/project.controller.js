@@ -104,8 +104,6 @@ projectController.getAllProjects = async (req, res) => {
     }
 
     const { isPaginated, page, limit, skip } = getPaginationParams(req);
-    const total = await projectModel.countDocuments(filter);
-
     let query;
 
     if (req.query.basic === 'true') {
@@ -131,7 +129,11 @@ projectController.getAllProjects = async (req, res) => {
         query = query.skip(skip).limit(limit);
       }
 
-      const projects = await query;
+      const [total, projects] = await Promise.all([
+        projectModel.countDocuments(filter),
+        query.exec()
+      ]);
+
       const response = formatPaginatedResponse(projects, total, page, limit);
       return res.status(200).json(response);
     }

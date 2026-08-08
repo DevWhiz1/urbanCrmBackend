@@ -1,10 +1,11 @@
 const express = require('express');
 const router = express.Router();
 const materialController = require('../controllers/material.controller');
-const { authenticateToken, authorizeRoles } = require('../middleware/auth.middleware');
+const { authenticateToken, ensureUserAuth, authorizeRoles } = require('../middleware/auth.middleware');
 const { attachUserScope } = require('../middleware/scope.middleware');
 
 router.use(authenticateToken);
+router.use(ensureUserAuth);
 router.use(attachUserScope);
 
 // Add new material (Admin only)

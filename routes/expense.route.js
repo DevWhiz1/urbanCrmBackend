@@ -10,7 +10,14 @@ const {
   deleteExpenseCategory,
 } = require('../controllers/expense.controller');
 
+const { authenticateToken, ensureUserAuth } = require('../middleware/auth.middleware');
+const { attachUserScope } = require('../middleware/scope.middleware');
+
 const router = express.Router();
+
+router.use(authenticateToken);
+router.use(ensureUserAuth);
+router.use(attachUserScope);
 
 router.get('/categories', getExpenseCategories);
 router.post('/categories', createExpenseCategory);

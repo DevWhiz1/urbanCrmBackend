@@ -17,21 +17,22 @@ const getEmployees = async (req, res) => {
     }
 
     const { isPaginated, page, limit, skip } = getPaginationParams(req);
-    const total = await Employee.countDocuments(filter);
 
     let query = Employee.find(filter).sort({ createdAt: -1 });
 
     if (isPaginated && limit > 0) {
       query = query.skip(skip).limit(limit);
-    }
-
-    const employees = await query;
-    
-    if (isPaginated) {
+      
+      const [total, employees] = await Promise.all([
+        Employee.countDocuments(filter),
+        query.exec()
+      ]);
+      
       const response = formatPaginatedResponse(employees, total, page, limit);
       return res.status(200).json(response);
     }
     
+    const employees = await query;
     res.status(200).json(employees);
   } catch (error) {
     res.status(500).json({ message: error.message });

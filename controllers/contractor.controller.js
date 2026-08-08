@@ -1,6 +1,7 @@
 const { default: mongoose } = require('mongoose');
 const Contractor = require("../models/contractor.schema");
 const { getPaginationParams, formatPaginatedResponse } = require('../utils/paginate');
+const { invalidateUserScope, invalidateUser } = require('../utils/authCache');
 
 const contractorController = {};
 
@@ -10,6 +11,11 @@ contractorController.createContractor = async (req, res) => {
     const contractorData = req.body;
     const newContractor = new Contractor(contractorData);
     const savedContractor = await newContractor.save();
+
+    // Invalidate scope cache — a new contractor→user link has been established
+    if (contractorData.user) {
+      invalidateUserScope(contractorData.user);
+    }
 
     res.status(201).json({
       message: "Contractor created successfully",
@@ -53,8 +59,6 @@ contractorController.getAllContractor = async (req, res) => {
     }
 
     const { isPaginated, page, limit, skip } = getPaginationParams(req);
-    const total = await Contractor.countDocuments(filter);
-
     let query;
 
     if (req.query.basic === 'true') {
@@ -78,7 +82,11 @@ contractorController.getAllContractor = async (req, res) => {
         query = query.skip(skip).limit(limit);
       }
 
-      const contractors = await query;
+      const [total, contractors] = await Promise.all([
+        Contractor.countDocuments(filter),
+        query.exec()
+      ]);
+
       const response = formatPaginatedResponse(contractors, total, page, limit);
       return res.status(200).json(response);
     }
@@ -144,6 +152,13 @@ contractorController.updateContractor = async (req, res) => {
       });
     }
 
+    // Fetch existing record BEFORE update to capture the old userId.
+    // This handles the case where the admin reassigns a contractor to a different user.
+    const existingContractor = await Contractor.findById(id).select('user').lean();
+    if (!existingContractor) {
+      return res.status(404).json({ status: 404, message: "Contractor not found" });
+    }
+
     updateData.updatedAt = Date.now();
 
     const updatedContractor = await Contractor.findByIdAndUpdate(
@@ -153,11 +168,13 @@ contractorController.updateContractor = async (req, res) => {
     )
     .populate('user', 'userName email phoneNumber address status role');
 
-    if (!updatedContractor) {
-      return res.status(404).json({
-        status: 404,
-        message: "Contractor not found"
-      });
+    // Always invalidate the old user's scope cache
+    invalidateUserScope(existingContractor.user);
+
+    // If the user field was changed, also invalidate the new user's scope cache
+    const newUserId = updateData.user?.toString();
+    if (newUserId && existingContractor.user?.toString() !== newUserId) {
+      invalidateUserScope(newUserId);
     }
 
     res.status(200).json({
@@ -167,10 +184,7 @@ contractorController.updateContractor = async (req, res) => {
     });
   } catch (error) {
     if (error.name === 'ValidationError') {
-      return res.status(400).json({
-        status: 400,
-        message: error.message
-      });
+      return res.status(400).json({ status: 400, message: error.message });
     }
     res.status(500).json({
       status: 500,
@@ -217,6 +231,9 @@ contractorController.deleteContractor = async (req, res) => {
         userToSoftDelete.email = `${userToSoftDelete.email}_deleted_${Date.now()}`;
         await userToSoftDelete.save();
       }
+
+      // Invalidate both caches — contractor and linked user are now soft-deleted
+      invalidateUser(contractorToSoftDelete.user);
     }
 
     res.status(200).json({

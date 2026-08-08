@@ -1,10 +1,11 @@
 const express = require('express');
 const reportsController = require('../controllers/reports.controller');
-const { authenticateToken, authorizeRoles } = require('../middleware/auth.middleware');
+const { authenticateToken, ensureUserAuth, authorizeRoles } = require('../middleware/auth.middleware');
 const { attachUserScope } = require('../middleware/scope.middleware');
 const router = express.Router();
 
 router.use(authenticateToken);
+router.use(ensureUserAuth);
 router.use(attachUserScope);
 
 // Admin-only reports

@@ -1,6 +1,7 @@
 const { default: mongoose } = require('mongoose');
 const Client = require("../models/client.schema");
 const { getPaginationParams, formatPaginatedResponse } = require('../utils/paginate');
+const { invalidateUserScope, invalidateUser } = require('../utils/authCache');
 
 const clientController = {};
 
@@ -10,6 +11,11 @@ clientController.createClient = async (req, res) => {
     const clientData = req.body;
     const newClient = new Client(clientData);
     const savedClient = await newClient.save();
+
+    // Invalidate scope cache — a new client→user link has been established
+    if (clientData.user) {
+      invalidateUserScope(clientData.user);
+    }
 
     res.status(201).json({
       message: "Client created successfully",
@@ -53,8 +59,6 @@ clientController.getAllClients = async (req, res) => {
     }
 
     const { isPaginated, page, limit, skip } = getPaginationParams(req);
-    const total = await Client.countDocuments(filter);
-
     let query;
 
     if (req.query.basic === 'true') {
@@ -79,7 +83,11 @@ clientController.getAllClients = async (req, res) => {
         query = query.skip(skip).limit(limit);
       }
 
-      const clients = await query;
+      const [total, clients] = await Promise.all([
+        Client.countDocuments(filter),
+        query.exec()
+      ]);
+      
       const response = formatPaginatedResponse(clients, total, page, limit);
       return res.status(200).json(response);
     }
@@ -145,6 +153,13 @@ clientController.updateClient = async (req, res) => {
       });
     }
 
+    // Fetch existing record BEFORE update to capture the old userId.
+    // This handles the case where the admin reassigns a client to a different user.
+    const existingClient = await Client.findById(id).select('user').lean();
+    if (!existingClient) {
+      return res.status(404).json({ status: 404, message: "Client not found" });
+    }
+
     updateData.updatedAt = Date.now();
 
     const updatedClient = await Client.findByIdAndUpdate(
@@ -154,11 +169,13 @@ clientController.updateClient = async (req, res) => {
     )
     .populate('user', 'userName email phoneNumber address status role');
 
-    if (!updatedClient) {
-      return res.status(404).json({
-        status: 404,
-        message: "Client not found"
-      });
+    // Always invalidate the old user's scope cache
+    invalidateUserScope(existingClient.user);
+
+    // If the user field was changed, also invalidate the new user's scope cache
+    const newUserId = updateData.user?.toString();
+    if (newUserId && existingClient.user?.toString() !== newUserId) {
+      invalidateUserScope(newUserId);
     }
 
     res.status(200).json({
@@ -168,10 +185,7 @@ clientController.updateClient = async (req, res) => {
     });
   } catch (error) {
     if (error.name === 'ValidationError') {
-      return res.status(400).json({
-        status: 400,
-        message: error.message
-      });
+      return res.status(400).json({ status: 400, message: error.message });
     }
     res.status(500).json({
       status: 500,
@@ -218,6 +232,9 @@ clientController.deleteClient = async (req, res) => {
         userToSoftDelete.email = `${userToSoftDelete.email}_deleted_${Date.now()}`;
         await userToSoftDelete.save();
       }
+
+      // Invalidate both caches — client and linked user are now soft-deleted
+      invalidateUser(clientToSoftDelete.user);
     }
 
     res.status(200).json({
