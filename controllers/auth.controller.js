@@ -8,8 +8,8 @@ const authController = {}
 
 const cookieOptions = {
   httpOnly: true,
-  secure: true, // Always true for HTTPS deployments
-  sameSite: "none", // Always 'none' for cross-origin frontend-backend
+  secure: process.env.NODE_ENV === "production",       // HTTPS only in production
+  sameSite: process.env.NODE_ENV === "production" ? "none" : "lax", // 'none' for cross-origin
   maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
 };
 
@@ -227,6 +227,82 @@ authController.resetPassword = async (req, res) => {
     });
   } catch (error) {
     return res.status(500).json({ status: 500, message: "Internal Server Error" });
+  }
+};
+
+// ─── Update Profile ───────────────────────────────────────────────────────────
+authController.updateProfile = async (req, res) => {
+  try {
+    const { userName, email } = req.body;
+    const userId = req.user.userId;
+
+    const user = await User.findById(userId);
+    if (!user || user.isDeleted) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    if (email && email !== user.email) {
+      const existingEmail = await User.findOne({ email });
+      if (existingEmail) {
+        return res.status(400).json({ message: "Email already exists" });
+      }
+      user.email = email;
+    }
+
+    if (userName) {
+      user.userName = userName;
+    }
+
+    await user.save();
+    
+    // Invalidate auth cache so new profile info is fetched on next requests
+    invalidateUser(userId);
+
+    return res.status(200).json({
+      message: "Profile updated successfully",
+      user: {
+        id: user._id,
+        userName: user.userName,
+        email: user.email,
+        role: user.role,
+        status: user.status,
+      }
+    });
+  } catch (error) {
+    console.error("Error updating profile:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+};
+
+// ─── Update Password ──────────────────────────────────────────────────────────
+authController.updatePassword = async (req, res) => {
+  try {
+    const { oldPassword, newPassword } = req.body;
+    const userId = req.user.userId;
+
+    if (!oldPassword || !newPassword) {
+      return res.status(400).json({ message: "Old and new passwords are required" });
+    }
+
+    const user = await User.findById(userId);
+    if (!user || user.isDeleted) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const passwordMatch = await bcrypt.compare(oldPassword, user.password);
+    if (!passwordMatch) {
+      return res.status(403).json({ message: "Incorrect current password" });
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    user.password = hashedPassword;
+    user.plainPassword = newPassword;
+    await user.save();
+
+    return res.status(200).json({ message: "Password updated successfully" });
+  } catch (error) {
+    console.error("Error updating password:", error);
+    res.status(500).json({ message: "Internal server error" });
   }
 };
 
