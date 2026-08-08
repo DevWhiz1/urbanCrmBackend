@@ -2,6 +2,7 @@ const mongoose = require("mongoose");
 const bcrypt = require("bcrypt");
 const usersSchema = require("../models/users.schema");
 const { getPaginationParams, formatPaginatedResponse } = require("../utils/paginate");
+const { invalidateUserAuth, invalidateUser } = require("../utils/authCache");
 
 const userController = {};
 
@@ -68,6 +69,14 @@ userController.updateUser = async (req, res) => {
       }
     } catch (err) {
       console.log('Employee sync skipped:', err.message);
+    }
+
+    // Role change can leave a stale contractorId/clientId in scope cache —
+    // clear both. Status-only changes only need the auth cache.
+    if (body.role !== undefined) {
+      invalidateUser(id);
+    } else if (body.status !== undefined) {
+      invalidateUserAuth(id);
     }
 
     res.status(200).json({ message: "User updated successfully", user: updateUser });
@@ -175,6 +184,9 @@ userController.deleteUser = async (req, res) => {
     await Client.findOneAndUpdate({ user: id }, updateObj);
     await Contractor.findOneAndUpdate({ user: id }, updateObj);
     await Employee.findOneAndUpdate({ email: originalEmail }, { isDeleted: true, isActive: false, deletedAt: new Date() });
+
+    // Invalidate both caches — user and all linked scope data is now gone
+    invalidateUser(id);
     
     return res.status(200).json({ message: "User permanently deleted successfully" });
   } catch (error) {

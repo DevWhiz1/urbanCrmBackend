@@ -2,12 +2,12 @@
  * portal.route.js
  *
  * Secure routes for the Client and Contractor portals.
- * Every route: authenticate JWT → attach role scope → ownership-checked controller.
+ * Every route: authenticate JWT → refresh role from cache/DB → attach scope → ownership-checked controller.
  */
 
 const express = require('express');
 const router = express.Router();
-const { authenticateToken, authorizeRoles } = require('../middleware/auth.middleware');
+const { authenticateToken, ensureUserAuth, authorizeRoles } = require('../middleware/auth.middleware');
 const { attachUserScope } = require('../middleware/scope.middleware');
 const {
   getClientProject,
@@ -18,8 +18,9 @@ const {
   getContractorAllPayments,
 } = require('../controllers/portal.controller');
 
-// Apply auth + scope to all portal routes
+// Apply auth + authoritative role refresh + scope to all portal routes
 router.use(authenticateToken);
+router.use(ensureUserAuth);
 router.use(attachUserScope);
 
 // ─── CLIENT ROUTES ────────────────────────────────────────────────────────────
