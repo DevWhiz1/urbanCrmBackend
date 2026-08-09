@@ -12,6 +12,7 @@ const reportsController = {};
 reportsController.getProjectReports = async (req, res) => {
   try {
     const { startDate, endDate, status, category, projectIds } = req.query;
+    const { isPaginated, page, limit, skip } = getPaginationParams(req);
     
     // Build filter object
     const filter = { isDeleted: { $ne: true }, isActive: { $ne: false } };
@@ -33,9 +34,8 @@ reportsController.getProjectReports = async (req, res) => {
       filter._id = { $in: idsArray.map(id => new mongoose.Types.ObjectId(id)) };
     }
 
-    // Aggregation pipeline
-    const pipeline = [
-      { $match: filter },
+    // Lookup Pipeline (Shared between Summary and Paginated Projects)
+    const lookupPipeline = [
       // Lookup Materials
       {
         $lookup: {
@@ -123,6 +123,12 @@ reportsController.getProjectReports = async (req, res) => {
                 in: "$$payment.amount"
               }
             }
+          },
+          customer: {
+            $ifNull: [
+              "$customerDetails",
+              "$customer"
+            ]
           }
         }
       },
@@ -137,63 +143,99 @@ reportsController.getProjectReports = async (req, res) => {
           netVolume: { $subtract: ["$totalCredit", "$totalExpenses"] }
         }
       },
-      { $sort: { createdAt: -1 } }
+      // Remove bulky arrays to save memory and network bandwidth
+      {
+        $project: {
+          materials: 0,
+          payments: 0,
+          expenses: 0,
+          customerDetails: 0
+        }
+      }
     ];
 
-    const projects = await Project.aggregate(pipeline);
-
-    // Calculate overall statistics
-    const totalProjects = projects.length;
-    const totalRevenue = projects.reduce((sum, project) => sum + (project.totalCost || 0), 0);
-    const averageProjectValue = totalProjects > 0 ? totalRevenue / totalProjects : 0;
-    
-    let totalOverallExpenses = 0;
-    let totalOverallCredit = 0;
-    let totalOverallMaterialCosts = 0;
-    let totalOverallContractorCosts = 0;
-    let totalOverallOtherExpenses = 0;
-
-    const statusBreakdown = {};
-    const categoryBreakdown = {};
-
-    projects.forEach(project => {
-      // Breakdown counts
-      statusBreakdown[project.status] = (statusBreakdown[project.status] || 0) + 1;
-      
-      if (project.projectCategory) {
-        categoryBreakdown[project.projectCategory] = (categoryBreakdown[project.projectCategory] || 0) + 1;
+    const summaryPipeline = [
+      { $match: filter },
+      ...lookupPipeline,
+      {
+        $facet: {
+          totals: [
+            {
+              $group: {
+                _id: null,
+                totalProjects: { $sum: 1 },
+                totalRevenue: { $sum: "$totalCost" },
+                totalExpenses: { $sum: "$totalExpenses" },
+                totalCredit: { $sum: "$totalCredit" },
+                materialCosts: { $sum: "$materialCosts" },
+                contractorCosts: { $sum: "$contractorCosts" },
+                otherExpenses: { $sum: "$otherExpenses" },
+                pendingAmount: { $sum: "$pendingAmount" },
+                netVolume: { $sum: "$netVolume" }
+              }
+            }
+          ],
+          statusBreakdown: [
+            { $group: { _id: "$status", count: { $sum: 1 } } }
+          ],
+          categoryBreakdown: [
+            { $group: { _id: "$projectCategory", count: { $sum: 1 } } }
+          ]
+        }
       }
+    ];
 
-      // Overall metrics sum
-      totalOverallExpenses += (project.totalExpenses || 0);
-      totalOverallCredit += (project.totalCredit || 0);
-      totalOverallMaterialCosts += (project.materialCosts || 0);
-      totalOverallContractorCosts += (project.contractorCosts || 0);
-      totalOverallOtherExpenses += (project.otherExpenses || 0);
+    const projectsPipeline = [
+      { $match: filter },
+      { $sort: { createdAt: -1 } },
+      ...(isPaginated && limit > 0 ? [{ $skip: skip }, { $limit: limit }] : []),
+      ...lookupPipeline
+    ];
+
+    const [summaryResult, projects, totalCount] = await Promise.all([
+      Project.aggregate(summaryPipeline),
+      Project.aggregate(projectsPipeline),
+      Project.countDocuments(filter)
+    ]);
+
+    const summaryData = summaryResult[0];
+    const totals = summaryData.totals[0] || {};
+    
+    const statusBreakdown = {};
+    summaryData.statusBreakdown.forEach(item => {
+      if (item._id) statusBreakdown[item._id] = item.count;
     });
 
-    const totalOverallPending = totalRevenue - totalOverallCredit;
-    const totalOverallNetVolume = totalOverallCredit - totalOverallExpenses;
+    const categoryBreakdown = {};
+    summaryData.categoryBreakdown.forEach(item => {
+      if (item._id) categoryBreakdown[item._id] = item.count;
+    });
 
     res.status(200).json({
       status: 200,
       message: "Project reports retrieved successfully",
       data: {
         summary: {
-          totalProjects,
-          totalRevenue,
-          averageProjectValue,
+          totalProjects: totals.totalProjects || 0,
+          totalRevenue: totals.totalRevenue || 0,
+          averageProjectValue: totals.totalProjects > 0 ? (totals.totalRevenue || 0) / totals.totalProjects : 0,
           statusBreakdown,
           categoryBreakdown,
-          totalExpenses: totalOverallExpenses,
-          totalCredit: totalOverallCredit,
-          materialCosts: totalOverallMaterialCosts,
-          contractorCosts: totalOverallContractorCosts,
-          otherExpenses: totalOverallOtherExpenses,
-          pendingAmount: totalOverallPending,
-          netVolume: totalOverallNetVolume
+          totalExpenses: totals.totalExpenses || 0,
+          totalCredit: totals.totalCredit || 0,
+          materialCosts: totals.materialCosts || 0,
+          contractorCosts: totals.contractorCosts || 0,
+          otherExpenses: totals.otherExpenses || 0,
+          pendingAmount: totals.pendingAmount || 0,
+          netVolume: totals.netVolume || 0
         },
-        projects
+        projects,
+        pagination: {
+          total: totalCount,
+          page,
+          limit,
+          totalPages: limit > 0 ? Math.ceil(totalCount / limit) : 1
+        }
       }
     });
 

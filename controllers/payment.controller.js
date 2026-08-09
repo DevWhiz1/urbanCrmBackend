@@ -40,102 +40,30 @@ paymentController.getAllPayments = async (req, res) => {
       if (req.contractorId) {
         matchStage.contractor = new mongoose.Types.ObjectId(req.contractorId);
       }
+    } else if (req.user?.role === 'Client' && req.clientId) {
+      const projectIds = await Project.find({ customer: req.clientId, isDeleted: { $ne: true } }).distinct('_id');
+      matchStage.project = { $in: projectIds };
     }
 
-    const pipeline = [
-      { $match: matchStage },
-      // Lookup Project
-      {
-        $lookup: {
-          from: "projects",
-          localField: "project",
-          foreignField: "_id",
-          as: "project"
-        }
-      },
-      { $unwind: { path: "$project", preserveNullAndEmptyArrays: true } },
+    let query = Payment.find(matchStage)
+      .select('amount date status type paymentMethod transactionId workDescription notes receiptPhoto createdAt project contractor contract createdBy')
+      .populate('project', 'name')
+      .populate('contractor', 'companyName')
+      .populate('contract', 'contractType')
+      .populate('createdBy', 'userName')
+      .sort({ createdAt: -1 })
+      .lean();
 
-      // Filter by Client scope if User role
-      ...(req.user?.role === 'Client' && req.clientId ? [
-        { $match: { "project.customer": new mongoose.Types.ObjectId(req.clientId) } }
-      ] : []),
+    if (isPaginated && limit > 0) {
+      query = query.skip(skip).limit(limit);
+    }
 
-      // Lookup Contractor
-      {
-        $lookup: {
-          from: "contractors",
-          localField: "contractor",
-          foreignField: "_id",
-          as: "contractor"
-        }
-      },
-      { $unwind: { path: "$contractor", preserveNullAndEmptyArrays: true } },
+    const [total, payments] = await Promise.all([
+      Payment.countDocuments(matchStage),
+      query
+    ]);
 
-      // Lookup Contract
-      {
-        $lookup: {
-          from: "projectcontracts",
-          localField: "contract",
-          foreignField: "_id",
-          as: "contract"
-        }
-      },
-      { $unwind: { path: "$contract", preserveNullAndEmptyArrays: true } },
-
-      // Lookup CreatedBy (User)
-      {
-        $lookup: {
-          from: "users",
-          localField: "createdBy",
-          foreignField: "_id",
-          as: "createdBy"
-        }
-      },
-      { $unwind: { path: "$createdBy", preserveNullAndEmptyArrays: true } },
-
-      // Project fields
-      {
-        $project: {
-          _id: 1,
-          amount: 1,
-          date: 1,
-          status: 1,
-          type: 1,
-          paymentMethod: 1,
-          transactionId: 1,
-          workDescription: 1,
-          notes: 1,
-          receiptPhoto: 1,
-          createdAt: 1,
-          "project._id": 1,
-          "project.name": 1,
-          "contractor._id": 1,
-          "contractor.companyName": 1,
-          "contract._id": 1,
-          "contract.contractType": 1,
-          "createdBy._id": 1,
-          "createdBy.userName": 1,
-        }
-      },
-      { $sort: { createdAt: -1 } }
-    ];
-
-    // Execution with Facet for Count & Pagination
-    const facetPipeline = [
-      ...pipeline,
-      {
-        $facet: {
-          data: isPaginated && limit > 0 ? [{ $skip: skip }, { $limit: limit }] : [],
-          totalCount: [{ $count: "count" }]
-        }
-      }
-    ];
-
-    const result = await Payment.aggregate(facetPipeline);
-    const data = result[0]?.data || [];
-    const total = result[0]?.totalCount[0]?.count || 0;
-
-    const response = formatPaginatedResponse(data, total, page, limit);
+    const response = formatPaginatedResponse(payments, total, page, limit);
     res.status(200).json(response);
   } catch (error) {
     res.status(500).json({
@@ -189,7 +117,7 @@ paymentController.getTotalPaymentForProject = async (req, res) => {
   }
 };
 
-// Get all payments for a project (aggregate pipeline — search handled in-pipeline, no pre-query)
+// Get all payments for a project (using find and populate for performance)
 paymentController.getPaymentsByProject = async (req, res) => {
   try {
     const { projectId } = req.params;
@@ -225,87 +153,50 @@ paymentController.getPaymentsByProject = async (req, res) => {
     else if (sort === 'amount_desc') sortOptions = { amount: -1 };
     else if (sort === 'amount_asc') sortOptions = { amount: 1 };
 
-    // Contractor $lookup is first so the search $match can filter by contractor.companyName
-    // in the same pipeline pass — eliminates the old two-query pre-fetch pattern
-    const pipeline = [
-      { $match: matchStage },
-      {
-        $lookup: {
-          from: 'contractors',
-          localField: 'contractor',
-          foreignField: '_id',
-          as: 'contractor'
-        }
-      },
-      { $unwind: { path: '$contractor', preserveNullAndEmptyArrays: true } },
-    ];
+    let searchStage = { ...matchStage };
 
     if (search) {
+      const searchRegex = { $regex: search, $options: 'i' };
       const searchFilter = {
         $or: [
-          { workDescription: { $regex: search, $options: 'i' } },
-          { notes: { $regex: search, $options: 'i' } },
-          { paymentMethod: { $regex: search, $options: 'i' } },
-          { 'contractor.companyName': { $regex: search, $options: 'i' } },
+          { workDescription: searchRegex },
+          { notes: searchRegex },
+          { paymentMethod: searchRegex }
         ]
       };
+      
+      const Contractor = require('../models/contractor.schema');
+      const matchingContractors = await Contractor.find({ companyName: searchRegex }).distinct('_id');
+      
+      if (matchingContractors.length > 0) {
+        searchFilter.$or.push({ contractor: { $in: matchingContractors } });
+      }
+
       if (!isNaN(parseFloat(search))) {
         searchFilter.$or.push({ amount: parseFloat(search) });
       }
-      pipeline.push({ $match: searchFilter });
+      
+      searchStage = { ...matchStage, ...searchFilter };
     }
 
-    pipeline.push(
-      {
-        $lookup: {
-          from: 'projectcontracts',
-          localField: 'contract',
-          foreignField: '_id',
-          as: 'contract'
-        }
-      },
-      { $unwind: { path: '$contract', preserveNullAndEmptyArrays: true } },
-      {
-        $lookup: {
-          from: 'users',
-          localField: 'createdBy',
-          foreignField: '_id',
-          as: 'createdBy'
-        }
-      },
-      { $unwind: { path: '$createdBy', preserveNullAndEmptyArrays: true } },
-      {
-        $project: {
-          _id: 1, paymentId: 1, amount: 1, date: 1, status: 1, type: 1,
-          paymentMethod: 1, transactionId: 1, workDescription: 1, notes: 1,
-          receiptPhoto: 1, createdAt: 1,
-          'contractor._id': 1,
-          'contractor.companyName': 1,
-          'contract._id': 1,
-          'contract.contractType': 1,
-          'createdBy._id': 1,
-          'createdBy.userName': 1,
-        }
-      },
-      { $sort: sortOptions }
-    );
+    let query = Payment.find(searchStage)
+      .select('paymentId amount date status type paymentMethod transactionId workDescription notes receiptPhoto createdAt contractor contract createdBy')
+      .populate('contractor', 'companyName')
+      .populate('contract', 'contractType')
+      .populate('createdBy', 'userName')
+      .sort(sortOptions)
+      .lean();
 
-    // $facet gets count + paginated slice in a single MongoDB round-trip
-    const facetPipeline = [
-      ...pipeline,
-      {
-        $facet: {
-          data: isPaginated && limit > 0 ? [{ $skip: skip }, { $limit: limit }] : [],
-          totalCount: [{ $count: 'count' }]
-        }
-      }
-    ];
+    if (isPaginated && limit > 0) {
+      query = query.skip(skip).limit(limit);
+    }
 
-    const result = await Payment.aggregate(facetPipeline);
-    const data = result[0]?.data || [];
-    const total = result[0]?.totalCount[0]?.count || 0;
+    const [total, payments] = await Promise.all([
+      Payment.countDocuments(searchStage),
+      query
+    ]);
 
-    const response = formatPaginatedResponse(data, total, page, limit);
+    const response = formatPaginatedResponse(payments, total, page, limit);
     res.status(200).json(response);
   } catch (error) {
     res.status(500).json({ message: 'Failed to fetch payments by project', error: error.message });
