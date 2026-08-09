@@ -189,75 +189,123 @@ paymentController.getTotalPaymentForProject = async (req, res) => {
   }
 };
 
-// Get all payments for a project (with optional type filter and pagination)
+// Get all payments for a project (aggregate pipeline — search handled in-pipeline, no pre-query)
 paymentController.getPaymentsByProject = async (req, res) => {
   try {
     const { projectId } = req.params;
-    const { type, contract, method, status, contractor, startDate, endDate } = req.query;
-    let filter = { project: new mongoose.Types.ObjectId(projectId), isDeleted: { $ne: true } };
-    if (type) filter.type = type;
-    if (contract) filter.contract = new mongoose.Types.ObjectId(contract);
-    if (contractor) filter.contractor = new mongoose.Types.ObjectId(contractor);
-    if (method) filter.paymentMethod = method;
-    if (status) filter.status = status;
-    
-    if (startDate || endDate) {
-      filter.date = {};
-      if (startDate) filter.date.$gte = new Date(startDate);
-      if (endDate) filter.date.$lte = new Date(endDate);
-    }
+    const { type, contract, method, status, contractor, startDate, endDate, sort, search } = req.query;
+    const { isPaginated, page, limit, skip } = getPaginationParams(req);
 
+    const matchStage = {
+      project: new mongoose.Types.ObjectId(projectId),
+      isDeleted: { $ne: true }
+    };
+
+    if (type) matchStage.type = type;
+    if (contract) matchStage.contract = new mongoose.Types.ObjectId(contract);
+    if (method) matchStage.paymentMethod = method;
+    if (status) matchStage.status = status;
 
     // Role-based scoping
     if (req.user?.role === 'Contractor' && req.contractorId) {
-      filter.contractor = new mongoose.Types.ObjectId(req.contractorId);
+      matchStage.contractor = new mongoose.Types.ObjectId(req.contractorId);
+    } else if (contractor) {
+      matchStage.contractor = new mongoose.Types.ObjectId(contractor);
     }
 
-    if (req.query.search) {
-      const searchTerm = req.query.search;
-      
-      const Contractor = require('../models/contractor.schema');
-      const matchingContractors = await Contractor.find({
-        companyName: { $regex: searchTerm, $options: 'i' }
-      }).select('_id');
-      const contractorIds = matchingContractors.map(c => c._id);
-
-      filter.$or = [
-        { workDescription: { $regex: searchTerm, $options: 'i' } },
-        { notes: { $regex: searchTerm, $options: 'i' } },
-        { paymentMethod: { $regex: searchTerm, $options: 'i' } },
-        { contractor: { $in: contractorIds } }
-      ];
-      
-      // Also check if search term is a number for amount
-      if (!isNaN(parseFloat(searchTerm))) {
-        filter.$or.push({ amount: parseFloat(searchTerm) });
-      }
+    if (startDate || endDate) {
+      matchStage.date = {};
+      if (startDate) matchStage.date.$gte = new Date(startDate);
+      if (endDate) matchStage.date.$lte = new Date(endDate);
     }
-
-    const { isPaginated, page, limit, skip } = getPaginationParams(req);
-    const total = await Payment.countDocuments(filter);
 
     let sortOptions = { createdAt: -1 };
-    if (req.query.sort) {
-      if (req.query.sort === 'date_desc') sortOptions = { date: -1 };
-      else if (req.query.sort === 'date_asc') sortOptions = { date: 1 };
-      else if (req.query.sort === 'amount_desc') sortOptions = { amount: -1 };
-      else if (req.query.sort === 'amount_asc') sortOptions = { amount: 1 };
+    if (sort === 'date_desc') sortOptions = { date: -1 };
+    else if (sort === 'date_asc') sortOptions = { date: 1 };
+    else if (sort === 'amount_desc') sortOptions = { amount: -1 };
+    else if (sort === 'amount_asc') sortOptions = { amount: 1 };
+
+    // Contractor $lookup is first so the search $match can filter by contractor.companyName
+    // in the same pipeline pass — eliminates the old two-query pre-fetch pattern
+    const pipeline = [
+      { $match: matchStage },
+      {
+        $lookup: {
+          from: 'contractors',
+          localField: 'contractor',
+          foreignField: '_id',
+          as: 'contractor'
+        }
+      },
+      { $unwind: { path: '$contractor', preserveNullAndEmptyArrays: true } },
+    ];
+
+    if (search) {
+      const searchFilter = {
+        $or: [
+          { workDescription: { $regex: search, $options: 'i' } },
+          { notes: { $regex: search, $options: 'i' } },
+          { paymentMethod: { $regex: search, $options: 'i' } },
+          { 'contractor.companyName': { $regex: search, $options: 'i' } },
+        ]
+      };
+      if (!isNaN(parseFloat(search))) {
+        searchFilter.$or.push({ amount: parseFloat(search) });
+      }
+      pipeline.push({ $match: searchFilter });
     }
 
-    let query = Payment.find(filter)
-      .populate('contractor', 'companyName')
-      .populate('contract', 'contractType')
-      .populate('createdBy', 'userName')
-      .sort(sortOptions);
+    pipeline.push(
+      {
+        $lookup: {
+          from: 'projectcontracts',
+          localField: 'contract',
+          foreignField: '_id',
+          as: 'contract'
+        }
+      },
+      { $unwind: { path: '$contract', preserveNullAndEmptyArrays: true } },
+      {
+        $lookup: {
+          from: 'users',
+          localField: 'createdBy',
+          foreignField: '_id',
+          as: 'createdBy'
+        }
+      },
+      { $unwind: { path: '$createdBy', preserveNullAndEmptyArrays: true } },
+      {
+        $project: {
+          _id: 1, paymentId: 1, amount: 1, date: 1, status: 1, type: 1,
+          paymentMethod: 1, transactionId: 1, workDescription: 1, notes: 1,
+          receiptPhoto: 1, createdAt: 1,
+          'contractor._id': 1,
+          'contractor.companyName': 1,
+          'contract._id': 1,
+          'contract.contractType': 1,
+          'createdBy._id': 1,
+          'createdBy.userName': 1,
+        }
+      },
+      { $sort: sortOptions }
+    );
 
-    if (isPaginated && limit > 0) {
-      query = query.skip(skip).limit(limit);
-    }
+    // $facet gets count + paginated slice in a single MongoDB round-trip
+    const facetPipeline = [
+      ...pipeline,
+      {
+        $facet: {
+          data: isPaginated && limit > 0 ? [{ $skip: skip }, { $limit: limit }] : [],
+          totalCount: [{ $count: 'count' }]
+        }
+      }
+    ];
 
-    const payments = await query;
-    const response = formatPaginatedResponse(payments, total, page, limit);
+    const result = await Payment.aggregate(facetPipeline);
+    const data = result[0]?.data || [];
+    const total = result[0]?.totalCount[0]?.count || 0;
+
+    const response = formatPaginatedResponse(data, total, page, limit);
     res.status(200).json(response);
   } catch (error) {
     res.status(500).json({ message: 'Failed to fetch payments by project', error: error.message });
@@ -268,12 +316,26 @@ paymentController.getPaymentsByProject = async (req, res) => {
 paymentController.getProjectPaymentSummary = async (req, res) => {
   try {
     const { projectId } = req.params;
-    const project = await Project.findById(projectId).select('totalPaymentReceived');
+
+    // Run all three queries in parallel — debit sum is computed by MongoDB, not JS
+    const [project, paymentAgg, payments] = await Promise.all([
+      Project.findById(projectId).select('totalPaymentReceived').lean(),
+      Payment.aggregate([
+        { $match: { project: new mongoose.Types.ObjectId(projectId), isDeleted: { $ne: true } } },
+        {
+          $group: {
+            _id: null,
+            totalDebits: { $sum: { $cond: [{ $eq: ['$type', 'debit'] }, '$amount', 0] } },
+          }
+        }
+      ]),
+      Payment.find({ project: projectId, isDeleted: { $ne: true } }).lean()
+    ]);
+
     if (!project) {
       return res.status(404).json({ message: 'Project not found' });
     }
-    const payments = await Payment.find({ project: projectId, isDeleted: { $ne: true } });
-    const totalDebits = payments.filter(p => p.type === 'debit').reduce((sum, p) => sum + (p.amount || 0), 0);
+    const totalDebits = paymentAgg[0]?.totalDebits || 0;
     const net = project.totalPaymentReceived - totalDebits;
     res.json({ projectId, totalPaymentReceived: project.totalPaymentReceived, totalDebits, net, payments });
   } catch (error) {
@@ -285,10 +347,34 @@ paymentController.getProjectPaymentSummary = async (req, res) => {
 paymentController.getMaterialPaymentsByProject = async (req, res) => {
   try {
     const { projectId } = req.params;
-    const project = await Project.findById(projectId).select('netMaterialCost');
-    const materials = await Material.find({ project: projectId });
+    const { isPaginated, page, limit, skip } = getPaginationParams(req);
+
+    const filter = { project: projectId, isDeleted: { $ne: true } };
+
+    const project = await Project.findById(projectId).select('netMaterialCost').lean();
     const totalMaterialPayments = project ? (project.netMaterialCost || 0) : 0;
-    res.json({ projectId, totalMaterialPayments, materials });
+
+    let query = Material.find(filter).sort({ createdAt: -1 }).lean();
+    if (isPaginated && limit > 0) {
+      query = query.skip(skip).limit(limit);
+    }
+
+    const [total, materials] = await Promise.all([
+      Material.countDocuments(filter),
+      query
+    ]);
+
+    if (isPaginated) {
+      const materialsResponse = formatPaginatedResponse(materials, total, page, limit);
+      res.json({ 
+        projectId, 
+        totalMaterialPayments, 
+        materials: materialsResponse.data,
+        pagination: materialsResponse.pagination
+      });
+    } else {
+      res.json({ projectId, totalMaterialPayments, materials });
+    }
   } catch (error) {
     res.status(500).json({ message: 'Failed to get material payments', error: error.message });
   }
@@ -298,23 +384,37 @@ paymentController.getMaterialPaymentsByProject = async (req, res) => {
 paymentController.getFullProjectFinancialSummary = async (req, res) => {
   try {
     const { projectId } = req.params;
-    const project = await Project.findById(projectId).select('name totalPaymentReceived projectType totalCost additions netMaterialCost materialPurchaseCost materialReturnAmount');
+
+    // All three queries run in parallel — payment math done by MongoDB $group, not JS reduce
+    const [project, paymentAgg, totalMaterialCount] = await Promise.all([
+      Project.findById(projectId)
+        .select('name totalPaymentReceived projectType totalCost additions netMaterialCost materialPurchaseCost materialReturnAmount')
+        .lean(),
+      Payment.aggregate([
+        { $match: { project: new mongoose.Types.ObjectId(projectId), isDeleted: { $ne: true } } },
+        {
+          $group: {
+            _id: null,
+            totalDebits: { $sum: { $cond: [{ $eq: ['$type', 'debit'] }, '$amount', 0] } },
+            totalCount: { $sum: 1 }
+          }
+        }
+      ]),
+      Material.countDocuments({ project: projectId, isDeleted: { $ne: true } })
+    ]);
+
     if (!project) {
       return res.status(404).json({ message: 'Project not found' });
     }
-    // Calculate totals without returning full arrays
-    const payments = await Payment.find({ project: projectId, isDeleted: { $ne: true } }).select('type amount');
-    const totalDebits = payments.filter(p => p.type === 'debit').reduce((sum, p) => sum + (p.amount || 0), 0);
-    
-    // We already have project.netMaterialCost for material payments
+
+    const totalDebits = paymentAgg[0]?.totalDebits || 0;
+    const totalPaymentCount = paymentAgg[0]?.totalCount || 0;
     const totalMaterialPayments = project.netMaterialCost || 0;
-    const totalMaterialCount = await Material.countDocuments({ project: projectId, isDeleted: { $ne: true } });
-    
     const net = project.totalPaymentReceived - totalDebits - totalMaterialPayments;
     const additionsTotal = (project.additions || []).reduce((sum, a) => sum + (a.amount || 0), 0);
     const projectCost = project.totalCost || 0;
     const baseProjectCost = Math.max(0, projectCost - additionsTotal);
-    
+
     res.json({
       projectId,
       projectName: project.name,
@@ -325,7 +425,7 @@ paymentController.getFullProjectFinancialSummary = async (req, res) => {
       additions: project.additions || [],
       totalPaymentReceived: project.totalPaymentReceived,
       totalDebits,
-      totalPaymentCount: payments.length,
+      totalPaymentCount,
       totalMaterialPayments,
       totalMaterialCount,
       materialPurchaseCost: project.materialPurchaseCost || 0,
@@ -359,16 +459,31 @@ paymentController.getProjectContractsByProject = async (req, res) => {
 paymentController.getProjectContractSummary = async (req, res) => {
   try {
     const { projectContractId } = req.params;
-    const contract = await ProjectContract.findById(projectContractId)
-      .populate('project', 'name')
-      .populate('contractor', 'companyName');
+    const [contract, paymentAgg] = await Promise.all([
+      ProjectContract.findById(projectContractId)
+        .populate('project', 'name')
+        .populate('contractor', 'companyName')
+        .lean(),
+      Payment.aggregate([
+        { $match: { contract: new mongoose.Types.ObjectId(projectContractId), isDeleted: { $ne: true } } },
+        {
+          $group: {
+            _id: null,
+            totalPayments: { $sum: { $cond: [{ $eq: ['$type', 'debit'] }, '$amount', 0] } },
+            count: { $sum: 1 }
+          }
+        }
+      ])
+    ]);
+
     if (!contract || contract.isDeleted) {
       return res.status(404).json({ message: 'Project contract not found' });
     }
-    const payments = await Payment.find({ contract: projectContractId, isDeleted: { $ne: true } }).select('type amount');
+
     const additionsTotal = (contract.additions || []).reduce((sum, a) => sum + (a.amount || 0), 0);
     const revisedTotalAmount = (contract.totalAmount || 0) + additionsTotal;
-    const totalPayments = payments.filter(p => p.type === 'debit').reduce((sum, p) => sum + (p.amount || 0), 0);
+    const totalPayments = paymentAgg[0]?.totalPayments || 0;
+    const totalPaymentCount = paymentAgg[0]?.count || 0;
     const net = revisedTotalAmount - totalPayments;
     res.json({
       projectContractId,
@@ -380,7 +495,7 @@ paymentController.getProjectContractSummary = async (req, res) => {
       additionsTotal,
       additions: contract.additions || [],
       totalPayments,
-      totalPaymentCount: payments.length,
+      totalPaymentCount,
       net,
       contract
     });

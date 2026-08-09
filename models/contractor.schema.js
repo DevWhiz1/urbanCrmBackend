@@ -45,6 +45,9 @@ accountNumber: {
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date },
 });
+contractorSchema.index({ user: 1, isDeleted: 1 });
+contractorSchema.index({ isDeleted: 1, createdAt: -1 });
+
 const Contractor = mongoose.model("Contractor", contractorSchema);
 
 module.exports = Contractor;

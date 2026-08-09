@@ -28,4 +28,6 @@ const clientSchema = new mongoose.Schema({
   deletedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
 }, { timestamps: true });
 
+clientSchema.index({ isDeleted: 1, createdAt: -1 });
+
 module.exports = mongoose.model("Client", clientSchema);

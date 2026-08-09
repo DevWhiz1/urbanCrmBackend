@@ -45,7 +45,6 @@ totalPaymentReceived: {
         type: mongoose.Schema.Types.ObjectId, 
         ref: 'Contractor' 
     }],
-  materials: [{ type: Schema.Types.ObjectId, ref: 'Material' }],
   // Project Details
   description: { type: String },
   // Status
@@ -58,7 +57,6 @@ totalPaymentReceived: {
   // Documents
   drawings: [{ type: String }], // URLs to drawings
   contracts: [{ type: String }], // URLs to contracts
-    invoices: [{ type: String }], // URLs to invoices
   // Meta
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date },
@@ -67,6 +65,11 @@ totalPaymentReceived: {
   deletedAt: { type: Date },
   deletedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
 });
+
+projectSchema.index({ isDeleted: 1, createdAt: -1 });
+projectSchema.index({ customer: 1, isDeleted: 1 });
+projectSchema.index({ contractors: 1, isDeleted: 1 });
+projectSchema.index({ status: 1, isDeleted: 1 });
 
 const Project = mongoose.model('Project', projectSchema);
 module.exports = Project;

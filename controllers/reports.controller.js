@@ -4,6 +4,7 @@ const Contractor = require('../models/contractor.schema');
 const Client = require('../models/client.schema');
 const Payment = require('../models/payment.Schema');
 const ProjectContract = require('../models/projectContractSchema');
+const { getPaginationParams } = require('../utils/paginate');
 
 const reportsController = {};
 
@@ -210,6 +211,7 @@ reportsController.getProjectReports = async (req, res) => {
 reportsController.getContractorReports = async (req, res) => {
   try {
     const { startDate, endDate, contractorType, minRating } = req.query;
+    const { isPaginated, page, limit, skip } = getPaginationParams(req);
     
     // Build filter object
     const filter = { isDeleted: { $ne: true } };
@@ -226,28 +228,55 @@ reportsController.getContractorReports = async (req, res) => {
       filter.rating = { $gte: parseFloat(minRating) };
     }
 
-    // Get contractors with populated data
-    const contractors = await Contractor.find(filter)
-      .populate('user', 'userName email phoneNumber address status')
-      .sort({ rating: -1, createdAt: -1 });
+    const [statsAgg, ratingAgg, total, contractors] = await Promise.all([
+      Contractor.aggregate([
+        { $match: filter },
+        {
+          $group: {
+            _id: "$contractorType",
+            count: { $sum: 1 },
+            activeCount: { $sum: { $cond: ["$isActive", 1, 0] } },
+            totalRating: { $sum: "$rating" }
+          }
+        }
+      ]),
+      Contractor.aggregate([
+        { $match: filter },
+        {
+          $group: {
+            _id: { $floor: { $ifNull: ["$rating", 0] } },
+            count: { $sum: 1 }
+          }
+        }
+      ]),
+      Contractor.countDocuments(filter),
+      Contractor.find(filter)
+        .populate('user', 'userName email phoneNumber address status')
+        .sort({ rating: -1, createdAt: -1 })
+        .skip(isPaginated && limit > 0 ? skip : 0)
+        .limit(isPaginated && limit > 0 ? limit : 100)
+        .lean()
+    ]);
 
-    // Calculate statistics
-    const totalContractors = contractors.length;
-    const activeContractors = contractors.filter(c => c.isActive).length;
-    const averageRating = contractors.length > 0 
-      ? contractors.reduce((sum, c) => sum + (c.rating || 0), 0) / contractors.length 
-      : 0;
+    let totalContractors = 0;
+    let activeContractors = 0;
+    let sumRatings = 0;
+    const typeBreakdown = {};
+    
+    for (const item of statsAgg) {
+      const type = item._id || 'Unspecified';
+      typeBreakdown[type] = item.count;
+      totalContractors += item.count;
+      activeContractors += item.activeCount;
+      sumRatings += item.totalRating || 0;
+    }
 
-    const typeBreakdown = contractors.reduce((acc, contractor) => {
-      acc[contractor.contractorType] = (acc[contractor.contractorType] || 0) + 1;
-      return acc;
-    }, {});
-
-    const ratingDistribution = contractors.reduce((acc, contractor) => {
-      const rating = Math.floor(contractor.rating || 0);
-      acc[rating] = (acc[rating] || 0) + 1;
-      return acc;
-    }, {});
+    const averageRating = totalContractors > 0 ? sumRatings / totalContractors : 0;
+    
+    const ratingDistribution = {};
+    for (const item of ratingAgg) {
+      ratingDistribution[item._id] = item.count;
+    }
 
     res.status(200).json({
       status: 200,
@@ -260,7 +289,13 @@ reportsController.getContractorReports = async (req, res) => {
           typeBreakdown,
           ratingDistribution
         },
-        contractors
+        contractors,
+        pagination: {
+          total,
+          page,
+          limit,
+          totalPages: limit > 0 ? Math.ceil(total / limit) : 1
+        }
       }
     });
 
@@ -278,6 +313,7 @@ reportsController.getContractorReports = async (req, res) => {
 reportsController.getClientReports = async (req, res) => {
   try {
     const { startDate, endDate, isActive } = req.query;
+    const { isPaginated, page, limit, skip } = getPaginationParams(req);
     
     // Build filter object
     const filter = { isDeleted: { $ne: true } };
@@ -291,24 +327,43 @@ reportsController.getClientReports = async (req, res) => {
       filter.isActive = isActive === 'true';
     }
 
-    // Get clients with populated data
-    const clients = await Client.find(filter)
-      .populate('user', 'userName email phoneNumber address status')
-      .sort({ createdAt: -1 });
+    const startOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
 
-    // Calculate statistics
-    const totalClients = clients.length;
-    const activeClients = clients.filter(c => c.isActive).length;
-    const newClientsThisMonth = clients.filter(c => {
-      const now = new Date();
-      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-      return c.createdAt >= startOfMonth;
-    }).length;
+    const [statsAgg, total, clients] = await Promise.all([
+      Client.aggregate([
+        { $match: filter },
+        {
+          $group: {
+            _id: "$paymentTerms",
+            count: { $sum: 1 },
+            activeCount: { $sum: { $cond: ["$isActive", 1, 0] } },
+            newThisMonth: { 
+              $sum: { $cond: [ { $gte: ["$createdAt", startOfMonth] }, 1, 0 ] } 
+            }
+          }
+        }
+      ]),
+      Client.countDocuments(filter),
+      Client.find(filter)
+        .populate('user', 'userName email phoneNumber address status')
+        .sort({ createdAt: -1 })
+        .skip(isPaginated && limit > 0 ? skip : 0)
+        .limit(isPaginated && limit > 0 ? limit : 100)
+        .lean()
+    ]);
 
-    const paymentTermsBreakdown = clients.reduce((acc, client) => {
-      acc[client.paymentTerms] = (acc[client.paymentTerms] || 0) + 1;
-      return acc;
-    }, {});
+    let totalClients = 0;
+    let activeClients = 0;
+    let newClientsThisMonth = 0;
+    const paymentTermsBreakdown = {};
+
+    for (const item of statsAgg) {
+      const term = item._id || 'Unspecified';
+      paymentTermsBreakdown[term] = item.count;
+      totalClients += item.count;
+      activeClients += item.activeCount;
+      newClientsThisMonth += item.newThisMonth;
+    }
 
     res.status(200).json({
       status: 200,
@@ -320,7 +375,13 @@ reportsController.getClientReports = async (req, res) => {
           newClientsThisMonth,
           paymentTermsBreakdown
         },
-        clients
+        clients,
+        pagination: {
+          total,
+          page,
+          limit,
+          totalPages: limit > 0 ? Math.ceil(total / limit) : 1
+        }
       }
     });
 
@@ -338,97 +399,95 @@ reportsController.getClientReports = async (req, res) => {
 reportsController.getPaymentReports = async (req, res) => {
   try {
     const { startDate, endDate, status, paymentType } = req.query;
-    
-    // Build filter object
+    const { isPaginated, page, limit, skip } = getPaginationParams(req);
+
     const filter = { isDeleted: { $ne: true } };
     if (startDate && endDate) {
-      filter.createdAt = {
-        $gte: new Date(startDate),
-        $lte: new Date(endDate)
-      };
+      filter.createdAt = { $gte: new Date(startDate), $lte: new Date(endDate) };
     }
-    if (status) {
-      filter.status = status;
+    if (status) filter.status = status;
+    if (paymentType) filter.type = paymentType;
+
+    // All stats computed by MongoDB — no full document load + JS reduce passes
+    const [statsAgg, monthlyAgg, payments, total] = await Promise.all([
+      Payment.aggregate([
+        { $match: filter },
+        {
+          $group: {
+            _id: '$status',
+            totalCredit: { $sum: { $cond: [{ $eq: ['$type', 'credit'] }, '$amount', 0] } },
+            totalDebit:  { $sum: { $cond: [{ $eq: ['$type', 'debit']  }, '$amount', 0] } },
+            count: { $sum: 1 }
+          }
+        }
+      ]),
+      Payment.aggregate([
+        { $match: filter },
+        {
+          $group: {
+            _id: {
+              month: { $dateToString: { format: '%Y-%m', date: '$createdAt' } },
+              type: '$type'
+            },
+            total: { $sum: '$amount' },
+            count: { $sum: 1 }
+          }
+        },
+        { $sort: { '_id.month': 1 } }
+      ]),
+      Payment.find(filter)
+        .sort({ createdAt: -1 })
+        .skip(isPaginated && limit > 0 ? skip : 0)
+        .limit(isPaginated && limit > 0 ? limit : 100)
+        .lean(),
+      Payment.countDocuments(filter)
+    ]);
+
+    let totalAmount = 0, paidAmount = 0, pendingAmount = 0, overdueAmount = 0;
+    const statusBreakdown = {};
+    for (const row of statsAgg) {
+      const net = (row.totalCredit || 0) - (row.totalDebit || 0);
+      totalAmount += net;
+      statusBreakdown[row._id] = row.count;
+      if (row._id === 'paid')    paidAmount    += net;
+      if (row._id === 'pending') pendingAmount += net;
+      if (row._id === 'overdue') overdueAmount += net;
     }
-    if (paymentType) {
-      filter.paymentType = paymentType;
-    }
 
-    // Get payments
-    const payments = await Payment.find(filter).sort({ createdAt: -1 });
-
-    // Calculate statistics - considering credit/debit types
-    const totalAmount = payments.reduce((sum, payment) => {
-      const amount = payment.amount || 0;
-      return payment.type === 'credit' ? sum + amount : sum - amount;
-    }, 0);
-    
-    const paidAmount = payments
-      .filter(p => p.status === 'paid')
-      .reduce((sum, payment) => {
-        const amount = payment.amount || 0;
-        return payment.type === 'credit' ? sum + amount : sum - amount;
-      }, 0);
-      
-    const pendingAmount = payments
-      .filter(p => p.status === 'pending')
-      .reduce((sum, payment) => {
-        const amount = payment.amount || 0;
-        return payment.type === 'credit' ? sum + amount : sum - amount;
-      }, 0);
-      
-    const overdueAmount = payments
-      .filter(p => p.status === 'overdue')
-      .reduce((sum, payment) => {
-        const amount = payment.amount || 0;
-        return payment.type === 'credit' ? sum + amount : sum - amount;
-      }, 0);
-
-    const statusBreakdown = payments.reduce((acc, payment) => {
-      acc[payment.status] = (acc[payment.status] || 0) + 1;
-      return acc;
-    }, {});
-
-    const monthlyBreakdown = payments.reduce((acc, payment) => {
-      const month = payment.createdAt.toISOString().substring(0, 7); // YYYY-MM
-      if (!acc[month]) {
-        acc[month] = { count: 0, amount: 0, credit: 0, debit: 0 };
+    const monthlyBreakdown = {};
+    for (const row of monthlyAgg) {
+      const month = row._id.month;
+      if (!monthlyBreakdown[month]) {
+        monthlyBreakdown[month] = { count: 0, amount: 0, credit: 0, debit: 0 };
       }
-      acc[month].count += 1;
-      const amount = payment.amount || 0;
-      if (payment.type === 'credit') {
-        acc[month].amount += amount;
-        acc[month].credit += amount;
+      monthlyBreakdown[month].count += row.count;
+      if (row._id.type === 'credit') {
+        monthlyBreakdown[month].credit += row.total;
+        monthlyBreakdown[month].amount += row.total;
       } else {
-        acc[month].amount -= amount;
-        acc[month].debit += amount;
+        monthlyBreakdown[month].debit += row.total;
+        monthlyBreakdown[month].amount -= row.total;
       }
-      return acc;
-    }, {});
+    }
 
     res.status(200).json({
       status: 200,
       message: "Payment reports retrieved successfully",
       data: {
-        summary: {
-          totalAmount,
-          paidAmount,
-          pendingAmount,
-          overdueAmount,
-          statusBreakdown,
-          monthlyBreakdown
-        },
-        payments
+        summary: { totalAmount, paidAmount, pendingAmount, overdueAmount, statusBreakdown, monthlyBreakdown },
+        payments,
+        pagination: {
+          total,
+          page,
+          limit,
+          totalPages: limit > 0 ? Math.ceil(total / limit) : 1
+        }
       }
     });
 
   } catch (error) {
     console.error('Payment reports error:', error);
-    res.status(500).json({
-      status: 500,
-      message: "Internal server error",
-      error: error.message
-    });
+    res.status(500).json({ status: 500, message: "Internal server error", error: error.message });
   }
 };
 
@@ -436,37 +495,41 @@ reportsController.getPaymentReports = async (req, res) => {
 reportsController.getFinancialSummary = async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
-    
-    // Build date filter
+
     const dateFilter = {};
     if (startDate && endDate) {
-      dateFilter.createdAt = {
-        $gte: new Date(startDate),
-        $lte: new Date(endDate)
-      };
+      dateFilter.createdAt = { $gte: new Date(startDate), $lte: new Date(endDate) };
     }
 
-    // Get all projects in date range
-    const projects = await Project.find(dateFilter);
-    const totalProjectRevenue = projects.reduce((sum, project) => sum + (project.totalCost || 0), 0);
+    // Three parallel aggregates — no full document loads, isDeleted filter applied to all
+    const [projectAgg, paymentAgg, contractAgg] = await Promise.all([
+      Project.aggregate([
+        { $match: { ...dateFilter, isDeleted: { $ne: true } } },
+        { $group: { _id: null, totalRevenue: { $sum: '$totalCost' }, count: { $sum: 1 } } }
+      ]),
+      Payment.aggregate([
+        { $match: { ...dateFilter, isDeleted: { $ne: true } } },
+        { $group: { _id: '$status', total: { $sum: '$amount' }, count: { $sum: 1 } } }
+      ]),
+      ProjectContract.aggregate([
+        { $match: { ...dateFilter, isDeleted: { $ne: true } } },
+        { $group: { _id: null, totalContractValue: { $sum: '$totalAmount' }, count: { $sum: 1 } } }
+      ])
+    ]);
 
-    // Get all payments in date range
-    const payments = await Payment.find(dateFilter);
-    const totalPayments = payments.reduce((sum, payment) => sum + (payment.amount || 0), 0);
-    const paidPayments = payments
-      .filter(p => p.status === 'paid')
-      .reduce((sum, payment) => sum + (payment.amount || 0), 0);
+    const totalProjectRevenue = projectAgg[0]?.totalRevenue || 0;
+    const projectCount = projectAgg[0]?.count || 0;
 
-    // Get project contracts
-    const contracts = await ProjectContract.find(dateFilter)
-      .populate('project', 'name totalCost')
-      .populate('contractor', 'companyName');
-    
-    const totalContractValue = contracts.reduce((sum, contract) => sum + (contract.totalAmount || 0), 0);
+    let totalPayments = 0, paidPayments = 0, paymentCount = 0;
+    for (const row of paymentAgg) {
+      totalPayments += row.total;
+      paymentCount  += row.count;
+      if (row._id === 'paid') paidPayments += row.total;
+    }
 
-    // Calculate profit margin (simplified)
-    const totalCosts = totalContractValue;
-    const grossProfit = totalProjectRevenue - totalCosts;
+    const totalContractValue = contractAgg[0]?.totalContractValue || 0;
+    const contractCount = contractAgg[0]?.count || 0;
+    const grossProfit = totalProjectRevenue - totalContractValue;
     const profitMargin = totalProjectRevenue > 0 ? (grossProfit / totalProjectRevenue) * 100 : 0;
 
     res.status(200).json({
@@ -479,118 +542,82 @@ reportsController.getFinancialSummary = async (req, res) => {
           paidPayments,
           pendingPayments: totalPayments - paidPayments
         },
-        costs: {
-          totalContractValue,
-          grossProfit,
-          profitMargin
-        },
-        projects: projects.length,
-        contracts: contracts.length,
-        payments: payments.length
+        costs: { totalContractValue, grossProfit, profitMargin },
+        projects: projectCount,
+        contracts: contractCount,
+        payments: paymentCount
       }
     });
 
   } catch (error) {
     console.error('Financial summary error:', error);
-    res.status(500).json({
-      status: 500,
-      message: "Internal server error",
-      error: error.message
-    });
+    res.status(500).json({ status: 500, message: "Internal server error", error: error.message });
   }
 };
 
 // Get payment analytics for dashboard graphs
 reportsController.getPaymentAnalytics = async (req, res) => {
   try {
-    const { period = 'monthly' } = req.query; // daily, weekly, monthly, yearly
-    
-    // Build date filter based on period
+    const { period = 'monthly' } = req.query; // daily, monthly, yearly
+
     const now = new Date();
     let startDate, endDate;
-    
+
     switch (period) {
       case 'daily':
         startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 30);
-        endDate = now;
-        break;
+        endDate = now; break;
       case 'weekly':
         startDate = new Date(now.getFullYear(), now.getMonth() - 3, now.getDate());
-        endDate = now;
-        break;
+        endDate = now; break;
       case 'monthly':
         startDate = new Date(now.getFullYear() - 1, now.getMonth(), 1);
-        endDate = now;
-        break;
+        endDate = now; break;
       case 'yearly':
         startDate = new Date(now.getFullYear() - 5, 0, 1);
-        endDate = now;
-        break;
+        endDate = now; break;
       default:
         startDate = new Date(now.getFullYear() - 1, now.getMonth(), 1);
         endDate = now;
     }
 
-    const filter = {
-      createdAt: {
-        $gte: startDate,
-        $lte: endDate
-      }
-    };
+    const filter = { createdAt: { $gte: startDate, $lte: endDate } };
 
-    // Get payments
-    const payments = await Payment.find(filter).sort({ createdAt: 1 });
+    // MongoDB $dateToString groups by period server-side — no full document load + JS loop
+    const formatMap = { daily: '%Y-%m-%d', monthly: '%Y-%m', yearly: '%Y' };
+    const groupFormat = formatMap[period] || '%Y-%m';
 
-    // Group by period
-    let groupedData = {};
-    
-    payments.forEach(payment => {
-      let key;
-      const date = new Date(payment.createdAt);
-      
-      switch (period) {
-        case 'daily':
-          key = date.toISOString().split('T')[0]; // YYYY-MM-DD
-          break;
-        case 'weekly':
-          const weekStart = new Date(date);
-          weekStart.setDate(date.getDate() - date.getDay());
-          key = weekStart.toISOString().split('T')[0];
-          break;
-        case 'monthly':
-          key = date.toISOString().substring(0, 7); // YYYY-MM
-          break;
-        case 'yearly':
-          key = date.getFullYear().toString();
-          break;
-        default:
-          key = date.toISOString().substring(0, 7);
-      }
-      
-      if (!groupedData[key]) {
-        groupedData[key] = {
-          date: key,
-          credit: 0,
-          debit: 0,
-          net: 0,
-          count: 0
-        };
-      }
-      
-      const amount = payment.amount || 0;
-      groupedData[key].count += 1;
-      
-      if (payment.type === 'credit') {
-        groupedData[key].credit += amount;
-        groupedData[key].net += amount;
+    const agg = await Payment.aggregate([
+      { $match: filter },
+      {
+        $group: {
+          _id: {
+            key: { $dateToString: { format: groupFormat, date: '$createdAt' } },
+            type: '$type'
+          },
+          total: { $sum: '$amount' },
+          count: { $sum: 1 }
+        }
+      },
+      { $sort: { '_id.key': 1 } }
+    ]);
+
+    // Merge credit/debit buckets into one entry per period key
+    const grouped = {};
+    for (const item of agg) {
+      const k = item._id.key;
+      if (!grouped[k]) grouped[k] = { date: k, credit: 0, debit: 0, net: 0, count: 0 };
+      if (item._id.type === 'credit') {
+        grouped[k].credit += item.total;
+        grouped[k].net    += item.total;
       } else {
-        groupedData[key].debit += amount;
-        groupedData[key].net -= amount;
+        grouped[k].debit += item.total;
+        grouped[k].net   -= item.total;
       }
-    });
+      grouped[k].count += item.count;
+    }
 
-    // Convert to array and sort by date
-    const analytics = Object.values(groupedData).sort((a, b) => a.date.localeCompare(b.date));
+    const analytics = Object.values(grouped).sort((a, b) => a.date.localeCompare(b.date));
 
     res.status(200).json({
       status: 200,
@@ -609,11 +636,7 @@ reportsController.getPaymentAnalytics = async (req, res) => {
 
   } catch (error) {
     console.error('Payment analytics error:', error);
-    res.status(500).json({
-      status: 500,
-      message: "Internal server error",
-      error: error.message
-    });
+    res.status(500).json({ status: 500, message: "Internal server error", error: error.message });
   }
 };
 

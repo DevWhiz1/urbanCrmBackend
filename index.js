@@ -29,7 +29,7 @@ const projectContractRoute = require('./routes/projectContract.route');
 const clientRoute = require('./routes/client.route');
 const paymentRoute = require('./routes/payment.route');
 const materialRoute = require('./routes/material.route');
-const dashboardRoute = require('./routes/dashboard.route');
+
 const reportsRoute = require('./routes/reports.route');
 const userRoute = require('./routes/users.route');
 const employeeRoute = require('./routes/employee.route');
@@ -93,9 +93,9 @@ if (process.env.NODE_ENV !== 'production') {
       // Colour-code by status: green <300, yellow 3xx/4xx, red 5xx
       const colour =
         status >= 500 ? '\x1b[31m' :  // red
-        status >= 400 ? '\x1b[33m' :  // yellow
-        status >= 300 ? '\x1b[36m' :  // cyan
-                        '\x1b[32m';   // green
+          status >= 400 ? '\x1b[33m' :  // yellow
+            status >= 300 ? '\x1b[36m' :  // cyan
+              '\x1b[32m';   // green
 
       const reset = '\x1b[0m';
       const timeColour = ms > 500 ? '\x1b[31m' : ms > 200 ? '\x1b[33m' : '\x1b[32m';
@@ -123,7 +123,7 @@ app.use('/api/client', clientRoute);
 app.use('/api/project-contract', projectContractRoute);
 app.use('/api/payment', paymentRoute);
 app.use('/api/material', materialRoute);
-app.use('/api/dashboard', dashboardRoute);
+
 app.use('/api/reports', reportsRoute);
 app.use('/api/employee', employeeRoute);
 app.use('/api/expense', expenseRoute);

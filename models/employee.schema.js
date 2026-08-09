@@ -78,4 +78,7 @@ const employeeSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+employeeSchema.index({ isDeleted: 1, createdAt: -1 });
+employeeSchema.index({ role: 1, isDeleted: 1 });
+
 module.exports = mongoose.model('Employee', employeeSchema);

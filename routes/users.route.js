@@ -9,6 +9,7 @@ router.use(ensureUserAuth);
 router.use(attachUserScope);
 
 // User Management (Admin only)
+router.post("/create-user", authorizeRoles('Admin'), userController.createUser);
 router.put("/update-user/:id", authorizeRoles('Admin'), userController.updateUser);
 router.get("/get-single-user/:id", authorizeRoles('Admin'), userController.getSingleUser);
 router.put("/update-password/:id", userController.updatePassword);
