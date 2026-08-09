@@ -123,7 +123,8 @@ projectController.getAllProjects = async (req, res) => {
       query = projectModel.find(filter)
         .populate({ path: 'customer', select: 'user paymentTerms bankDetails address phoneNumber isActive', populate: { path: 'user', select: 'userName email' } })
         .populate({ path: 'contractors', select: 'user companyName contractorType paymentTerms bankDetails address phoneNumber', populate: { path: 'user', select: 'userName email' } })
-        .sort({ createdAt: -1 });
+        .sort({ createdAt: -1 })
+        .lean();
 
       if (isPaginated && limit > 0) {
         query = query.skip(skip).limit(limit);
@@ -131,7 +132,7 @@ projectController.getAllProjects = async (req, res) => {
 
       const [total, projects] = await Promise.all([
         projectModel.countDocuments(filter),
-        query.exec()
+        query
       ]);
 
       const response = formatPaginatedResponse(projects, total, page, limit);
@@ -169,21 +170,22 @@ projectController.getProjectById = async (req, res) => {
       });
     }
 
-    // Clean up any email-based addedBy entries to show real userName
+    // Clean up email-based addedBy entries — single batch query instead of N+1 loop
     if (project.additions && project.additions.length > 0) {
       const User = require('../models/users.schema');
-      let modified = false;
-      for (let addition of project.additions) {
-        if (addition.addedBy && addition.addedBy.includes('@')) {
-          const u = await User.findOne({ email: addition.addedBy }).select('userName');
-          if (u) {
-            addition.addedBy = u.userName;
+      const emailItems = project.additions.filter(a => a.addedBy?.includes('@'));
+      if (emailItems.length > 0) {
+        const emails = [...new Set(emailItems.map(a => a.addedBy))];
+        const users = await User.find({ email: { $in: emails } }).select('userName email').lean();
+        const emailMap = Object.fromEntries(users.map(u => [u.email, u.userName]));
+        let modified = false;
+        for (const addition of project.additions) {
+          if (addition.addedBy && emailMap[addition.addedBy]) {
+            addition.addedBy = emailMap[addition.addedBy];
             modified = true;
           }
         }
-      }
-      if (modified) {
-        await project.save();
+        if (modified) await project.save();
       }
     }
 
@@ -362,12 +364,15 @@ projectController.addProjectAddition = async (req, res) => {
 
     const addedByName = currentUser?.userName || req.user?.userName || 'Admin';
 
-    // Clean up existing addition records if they store an email address
-    for (let addition of project.additions) {
-      if (addition.addedBy && addition.addedBy.includes('@')) {
-        const u = await User.findOne({ email: addition.addedBy }).select('userName');
-        if (u) {
-          addition.addedBy = u.userName;
+    // Clean up existing addition records if they store an email address (batch — avoids N+1)
+    const emailItems = project.additions.filter(a => a.addedBy?.includes('@'));
+    if (emailItems.length > 0) {
+      const emails = [...new Set(emailItems.map(a => a.addedBy))];
+      const existingUsers = await User.find({ email: { $in: emails } }).select('userName email').lean();
+      const emailMap = Object.fromEntries(existingUsers.map(u => [u.email, u.userName]));
+      for (const addition of project.additions) {
+        if (addition.addedBy && emailMap[addition.addedBy]) {
+          addition.addedBy = emailMap[addition.addedBy];
         }
       }
     }

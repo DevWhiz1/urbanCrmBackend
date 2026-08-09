@@ -177,17 +177,15 @@ const getContractorContracts = async (req, res) => {
     ]);
 
     const contractIds = contracts.map(c => c._id);
-    const payments = await Payment.find({
-      contract: { $in: contractIds },
-      type: 'debit',
-      isDeleted: { $ne: true },
-    }).lean();
+    const paymentAgg = contractIds.length > 0 ? await Payment.aggregate([
+      { $match: { contract: { $in: contractIds }, type: 'debit', isDeleted: { $ne: true } } },
+      { $group: { _id: '$contract', totalAmount: { $sum: '$amount' } } }
+    ]) : [];
 
-    const paymentMap = payments.reduce((acc, p) => {
-      const cid = p.contract.toString();
-      acc[cid] = (acc[cid] || 0) + (p.amount || 0);
-      return acc;
-    }, {});
+    const paymentMap = {};
+    for (const item of paymentAgg) {
+      paymentMap[item._id.toString()] = item.totalAmount;
+    }
 
     const contractDtos = contracts.map((c) => {
       const totalReceived = paymentMap[c._id.toString()] || 0;

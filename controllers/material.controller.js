@@ -1,5 +1,6 @@
 const Material = require("../models/material.schema");
 const Project = require("../models/project.schema");
+const generateBusinessId = require('../utils/generateId');
 
 const materialController = {};
 
@@ -7,6 +8,8 @@ const materialController = {};
 materialController.createMaterial = async (req, res) => {
   try {
     const materialData = req.body;
+    materialData.createdBy = req.user?.userId || req.user?.id || req.user?._id;
+    materialData.paymentId = await generateBusinessId('MAT');
     const newMaterial = new Material(materialData);
     const savedMaterial = await newMaterial.save();
     
@@ -116,7 +119,9 @@ materialController.bulkImportMaterials = async (req, res) => {
 
     const createdBy = req.user?.userId || req.user?.id || req.user?._id;
 
-    const materialsToInsert = materials.map((m) => {
+    // Generate unique IDs for all items sequentially or bulk
+    const materialsToInsert = [];
+    for (const m of materials) {
       let parsedAmount = parseFloat(m.totalAmount || m.amount);
       let parsedQty = parseFloat(m.MaterialQuantity || m.quantity);
       let parsedRate = parseFloat(m.MaterialRate || m.rate);
@@ -141,7 +146,7 @@ materialController.bulkImportMaterials = async (req, res) => {
       const detailStr = (m.materialDetail || m.item || m.description || '').trim();
       const providerStr = (m.materialProvider || m.vendor || m.supplier || '').trim();
 
-      return {
+      const materialObj = {
         project,
         materialDetail: detailStr !== '' ? detailStr : 'None',
         materialProvider: providerStr !== '' ? providerStr : 'None',
@@ -152,9 +157,11 @@ materialController.bulkImportMaterials = async (req, res) => {
         status: m.status || 'paid',
         paymentMethod: m.paymentMethod || 'online',
         receiptPhoto: m.receiptPhoto || '',
-        createdBy: createdBy || undefined
+        createdBy: createdBy || undefined,
+        paymentId: await generateBusinessId('MAT')
       };
-    });
+      materialsToInsert.push(materialObj);
+    }
 
     const savedMaterials = await Material.insertMany(materialsToInsert);
 

@@ -4,8 +4,8 @@ const authController = require("../controllers/auth.controller");
 const { authenticateToken, ensureUserAuth } = require("../middleware/auth.middleware");
 const router = express.Router();
 
-// ─── Strict rate limiter: login + register only ───────────────────────────────
-// These are the only routes that could be brute-forced. /me and /logout
+// ─── Strict rate limiter: login only ───────────────────────────────
+// This is the only route that could be brute-forced. /me and /logout
 // are not attack surfaces and must not be rate-limited this aggressively.
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
@@ -18,7 +18,6 @@ const authLimiter = rateLimit({
   },
 });
 
-router.post("/register", authLimiter, authController.register);
 router.post("/login",    authLimiter, authController.login);
 router.post("/logout",   authenticateToken, authController.logout);
 router.get("/me",        authenticateToken, ensureUserAuth, authController.getMe);

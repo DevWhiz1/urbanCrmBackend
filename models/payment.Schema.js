@@ -66,5 +66,10 @@ const paymentSchema = new mongoose.Schema({
   timestamps: true 
 });
 
+paymentSchema.index({ project: 1, isDeleted: 1 });
+paymentSchema.index({ contract: 1, isDeleted: 1 });
+paymentSchema.index({ contractor: 1, isDeleted: 1 });
+paymentSchema.index({ isDeleted: 1, createdAt: -1 });
+
 const Payment = mongoose.model('Payment', paymentSchema);
 module.exports = Payment;

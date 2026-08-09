@@ -6,6 +6,10 @@ const materialSchema = new mongoose.Schema({
     ref: 'Project', 
     required: true 
   },
+  paymentId: {
+    type: String,
+    unique: true
+  },
   materialDetail: {
     type: String,
   },
@@ -54,6 +58,8 @@ MaterialRate: {
 }, {
   timestamps: true
 });
+
+materialSchema.index({ project: 1, isDeleted: 1, createdAt: -1 });
 
 const Material = mongoose.model('Material', materialSchema);
 module.exports = Material;

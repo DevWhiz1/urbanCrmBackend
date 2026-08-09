@@ -254,7 +254,7 @@ authController.updateProfile = async (req, res) => {
     }
 
     await user.save();
-    
+
     // Invalidate auth cache so new profile info is fetched on next requests
     invalidateUser(userId);
 

@@ -46,5 +46,8 @@ projectContractSchema.virtual('payments', {
   justOne: false
 });
 
+projectContractSchema.index({ project: 1, isDeleted: 1 });
+projectContractSchema.index({ contractor: 1, isDeleted: 1, createdAt: -1 });
+
 const ProjectContract = mongoose.model('ProjectContract', projectContractSchema);
 module.exports = ProjectContract;

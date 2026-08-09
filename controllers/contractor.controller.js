@@ -35,38 +35,18 @@ contractorController.getAllContractor = async (req, res) => {
     const filter = { isDeleted: { $ne: true } };
 
     if (req.user?.role === 'Contractor' && req.contractorId) {
-      filter._id = req.contractorId;
-    }
-
-    if (req.query.search) {
-      const searchTerm = req.query.search;
-      
-      // Find matching users first
-      const User = require('../models/users.schema');
-      const matchingUsers = await User.find({
-        $or: [
-          { userName: { $regex: searchTerm, $options: 'i' } },
-          { email: { $regex: searchTerm, $options: 'i' } }
-        ]
-      }).select('_id');
-      const userIds = matchingUsers.map(u => u._id);
-
-      filter.$or = [
-        { companyName: { $regex: searchTerm, $options: 'i' } },
-        { contractorType: { $regex: searchTerm, $options: 'i' } },
-        { user: { $in: userIds } }
-      ];
+      filter._id = new mongoose.Types.ObjectId(req.contractorId);
     }
 
     const { isPaginated, page, limit, skip } = getPaginationParams(req);
-    let query;
 
     if (req.query.basic === 'true') {
       filter.isActive = true;
-      query = Contractor.find(filter)
+      const query = Contractor.find(filter)
         .select('_id companyName contractorType user isActive')
         .populate('user', 'userName email')
-        .sort({ createdAt: -1 });
+        .sort({ createdAt: -1 })
+        .lean();
 
       const contractors = await query;
       return res.status(200).json({
@@ -74,20 +54,53 @@ contractorController.getAllContractor = async (req, res) => {
         data: contractors,
       });
     } else {
-      query = Contractor.find(filter)
-        .populate('user', 'userName email phoneNumber address status')
-        .sort({ createdAt: -1 });
+      const pipeline = [
+        { $match: filter },
+        {
+          $lookup: {
+            from: 'users',
+            localField: 'user',
+            foreignField: '_id',
+            as: 'user'
+          }
+        },
+        { $unwind: { path: '$user', preserveNullAndEmptyArrays: true } }
+      ];
 
-      if (isPaginated && limit > 0) {
-        query = query.skip(skip).limit(limit);
+      if (req.query.search) {
+        const searchTerm = req.query.search;
+        pipeline.push({
+          $match: {
+            $or: [
+              { companyName: { $regex: searchTerm, $options: 'i' } },
+              { contractorType: { $regex: searchTerm, $options: 'i' } },
+              { 'user.userName': { $regex: searchTerm, $options: 'i' } },
+              { 'user.email': { $regex: searchTerm, $options: 'i' } },
+              { 'user.phoneNumber': { $regex: searchTerm, $options: 'i' } }
+            ]
+          }
+        });
       }
 
-      const [total, contractors] = await Promise.all([
-        Contractor.countDocuments(filter),
-        query.exec()
-      ]);
+      pipeline.push(
+        { $sort: { createdAt: -1 } }
+      );
 
-      const response = formatPaginatedResponse(contractors, total, page, limit);
+      const facetPipeline = [
+        ...pipeline,
+        {
+          $facet: {
+            data: isPaginated && limit > 0 ? [{ $skip: skip }, { $limit: limit }] : [],
+            totalCount: [{ $count: 'count' }]
+          }
+        }
+      ];
+
+      const result = await Contractor.aggregate(facetPipeline);
+      const data = result[0]?.data || [];
+      const total = result[0]?.totalCount[0]?.count || 0;
+
+      const response = formatPaginatedResponse(data, total, page, limit);
       return res.status(200).json(response);
     }
   } catch (error) {

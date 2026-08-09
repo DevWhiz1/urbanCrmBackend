@@ -195,4 +195,46 @@ userController.deleteUser = async (req, res) => {
   }
 };
 
+userController.createUser = async (req, res) => {
+  try {
+    const { userName, email, password, role } = req.body;
+
+    if (!userName || !email || !password) {
+      return res.status(400).json({ message: "userName, email and password are required" });
+    }
+
+    const existingUser = await usersSchema.findOne({ email });
+    if (existingUser) {
+      return res.status(400).json({ message: "Email already exists" });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const user = new usersSchema({
+      userName,
+      email,
+      password: hashedPassword,
+      plainPassword: password,
+      role: role || "Client",
+      status: "Active",
+    });
+
+    await user.save();
+
+    return res.status(201).json({
+      message: "User created successfully",
+      user: {
+        id: user._id,
+        userName: user.userName,
+        email: user.email,
+        role: user.role,
+        status: user.status,
+      },
+    });
+  } catch (error) {
+    console.error("Error creating user:", error);
+    return res.status(500).json({ message: "Internal server error" });
+  }
+};
+
 module.exports = userController;
+
