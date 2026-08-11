@@ -13,6 +13,7 @@ paymentController.createPayment = async (req, res) => {
   try {
     const paymentData = req.body;
     paymentData.paymentId = await generateBusinessId('PAY');
+    paymentData.receiptNo = await generateBusinessId('RCP');
     console.log("Payment Data:", paymentData);
     const newPayment = new Payment(paymentData);
     const savedPayment = await newPayment.save();
@@ -46,7 +47,7 @@ paymentController.getAllPayments = async (req, res) => {
     }
 
     let query = Payment.find(matchStage)
-      .select('amount date status type paymentMethod transactionId workDescription notes receiptPhoto createdAt project contractor contract createdBy')
+      .select('amount date status type paymentMethod transactionId workDescription notes receiptPhoto createdAt project contractor contract createdBy receiptNo paymentId')
       .populate('project', 'name')
       .populate('contractor', 'companyName')
       .populate('contract', 'contractType')
@@ -81,6 +82,7 @@ paymentController.addPaymentForProject = async (req, res) => {
       return res.status(400).json({ message: "Project ID is required in the body." });
     }
     paymentData.paymentId = await generateBusinessId('PAY');
+    paymentData.receiptNo = await generateBusinessId('RCP');
     const newPayment = new Payment(paymentData);
     const savedPayment = await newPayment.save();
     if (savedPayment.type === 'credit') {
@@ -180,7 +182,7 @@ paymentController.getPaymentsByProject = async (req, res) => {
     }
 
     let query = Payment.find(searchStage)
-      .select('paymentId amount date status type paymentMethod transactionId workDescription notes receiptPhoto createdAt contractor contract createdBy')
+      .select('paymentId receiptNo amount date status type paymentMethod transactionId workDescription notes receiptPhoto createdAt contractor contract createdBy')
       .populate('contractor', 'companyName')
       .populate('contract', 'contractType')
       .populate('createdBy', 'userName')
@@ -613,6 +615,151 @@ paymentController.deletePayment = async (req, res) => {
       message: "Failed to delete payment",
       error: error.message,
     });
+  }
+};
+
+// Get single payment details by ID
+paymentController.getPaymentDetailById = async (req, res) => {
+  try {
+    const payment = await Payment.findById(req.params.id)
+      .populate('contractor', 'companyName')
+      .populate('contract', 'contractType')
+      .populate({
+        path: 'project',
+        select: 'name projectCode customer',
+        populate: {
+          path: 'customer',
+          select: 'user',
+          populate: {
+            path: 'user',
+            select: 'userName'
+          }
+        }
+      })
+      .lean();
+    if (!payment) return res.status(404).json({ message: 'Payment not found' });
+    res.status(200).json(payment);
+  } catch (error) {
+    res.status(500).json({ message: 'Error fetching payment', error: error.message });
+  }
+};
+
+// Generate statement data
+paymentController.getStatementData = async (req, res) => {
+  try {
+    const { statementType, projectId, contractorId, startDate, endDate } = req.query;
+
+    if (!projectId) {
+      return res.status(400).json({ message: 'Project ID is required' });
+    }
+
+    const project = await Project.findById(projectId).populate({
+      path: 'customer',
+      populate: { path: 'user', select: 'userName' }
+    });
+
+    if (!project) {
+      return res.status(404).json({ message: 'Project not found' });
+    }
+
+    const dateFilter = {};
+    if (startDate) dateFilter.$gte = new Date(startDate);
+    if (endDate) {
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999);
+      dateFilter.$lte = end;
+    }
+
+    let result = { summary: {}, payments: [] };
+
+    // Common Summary Data
+    result.summary.project = project.name;
+    result.summary.client = project.customer?.user?.userName || 'N/A';
+    result.summary.projectCost = project.totalCost || 0;
+
+    if (statementType === 'client') {
+      // Client Statement (Income)
+      result.summary.contractAmount = project.totalCost || 0;
+      
+      const query = { project: projectId, type: 'credit', isDeleted: { $ne: true } };
+      if (Object.keys(dateFilter).length > 0) query.date = dateFilter;
+
+      const payments = await Payment.find(query).sort({ date: 1 }).lean();
+      
+      const totalPaid = payments.reduce((acc, curr) => acc + curr.amount, 0);
+      result.summary.totalPaid = totalPaid;
+      result.summary.balancePayable = (project.totalCost || 0) - totalPaid;
+      result.payments = payments;
+
+    } else if (statementType === 'contractor') {
+      // Contractor Statement (Expenses)
+      if (!contractorId) return res.status(400).json({ message: 'Contractor ID is required' });
+
+      const contract = await ProjectContract.findOne({ project: projectId, contractor: contractorId, isDeleted: { $ne: true } })
+        .populate({ path: 'contractor', populate: { path: 'user', select: 'userName' } });
+      
+      result.summary.contractor = contract?.contractor?.user?.userName || contract?.contractor?.companyName || 'N/A';
+      result.summary.contractAmount = contract?.totalAmount || 0;
+
+      const query = { project: projectId, contractor: contractorId, type: 'debit', isDeleted: { $ne: true } };
+      if (Object.keys(dateFilter).length > 0) query.date = dateFilter;
+
+      const payments = await Payment.find(query).sort({ date: 1 }).lean();
+      
+      const totalPaid = payments.reduce((acc, curr) => acc + curr.amount, 0);
+      result.summary.totalPaid = totalPaid;
+      result.summary.balancePayable = (contract?.totalAmount || 0) - totalPaid;
+      result.payments = payments;
+
+    } else if (statementType === 'material') {
+      // Admin Material Statement
+      const query = { project: projectId, isDeleted: { $ne: true } };
+      if (Object.keys(dateFilter).length > 0) query.date = dateFilter;
+
+      const materials = await Material.find(query).sort({ date: 1 }).lean();
+      
+      let purchaseCost = 0;
+      let returnAmount = 0;
+
+      materials.forEach(m => {
+        if (m.transactionType === 'purchase') purchaseCost += m.totalAmount;
+        else if (m.transactionType === 'return') returnAmount += m.totalAmount;
+        
+        m.amount = m.totalAmount; // Normalize field for template
+      });
+
+      result.summary.purchaseCost = purchaseCost;
+      result.summary.returnAmount = returnAmount;
+      result.summary.netMaterialCost = purchaseCost - returnAmount;
+      result.summary.totalReceived = await Payment.aggregate([
+        { $match: { project: new mongoose.Types.ObjectId(projectId), type: 'credit', isDeleted: { $ne: true } } },
+        { $group: { _id: null, total: { $sum: "$amount" } } }
+      ]).then(res => res[0]?.total || 0);
+
+      result.summary.netProjectAmount = result.summary.totalReceived - result.summary.netMaterialCost;
+      result.payments = materials;
+
+    } else if (statementType === 'admin') {
+      // Admin Statement (All Project Payments)
+      result.summary.contractAmount = project.totalCost || 0;
+      
+      const query = { project: projectId, isDeleted: { $ne: true } };
+      if (Object.keys(dateFilter).length > 0) query.date = dateFilter;
+
+      const payments = await Payment.find(query).sort({ date: 1 }).lean();
+      
+      const totalReceived = payments.filter(p => p.type === 'credit').reduce((acc, curr) => acc + curr.amount, 0);
+      result.summary.totalReceived = totalReceived;
+      result.summary.yetReceivable = (project.totalCost || 0) - totalReceived;
+      result.payments = payments;
+    } else {
+      return res.status(400).json({ message: 'Invalid statement type' });
+    }
+
+    res.status(200).json(result);
+  } catch (error) {
+    console.error("Error generating statement:", error);
+    res.status(500).json({ message: 'Error generating statement', error: error.message });
   }
 };
 

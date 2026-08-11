@@ -10,6 +10,11 @@ const paymentSchema = new mongoose.Schema({
     type: String,
     unique: true
   },
+  receiptNo: {
+    type: String,
+    unique: true,
+    sparse: true
+  },
   contractor: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Contractor',

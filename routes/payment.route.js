@@ -34,4 +34,10 @@ router.put("/update-payment/:id", authorizeRoles('Admin'), paymentController.upd
 // Delete payment
 router.delete("/delete-payment/:id", authorizeRoles('Admin'), paymentController.deletePayment);
 
+// Generate statement data
+router.get("/statement", authorizeRoles('Admin'), paymentController.getStatementData);
+
+// Get single payment details
+router.get("/payment-detail/:id", authorizeRoles('Admin'), paymentController.getPaymentDetailById);
+
 module.exports = router;

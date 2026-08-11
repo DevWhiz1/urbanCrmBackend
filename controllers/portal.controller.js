@@ -106,6 +106,7 @@ const getClientPayments = async (req, res) => {
     const paymentDtos = payments.map((p) => ({
       id: p._id,
       paymentId: p.paymentId,
+      receiptNo: p.receiptNo,
       amount: p.amount,
       date: p.date,
       paymentMethod: p.paymentMethod,
@@ -269,6 +270,7 @@ const getContractorContractPayments = async (req, res) => {
     const paymentDtos = payments.map((p) => ({
       id: p._id,
       paymentId: p.paymentId,
+      receiptNo: p.receiptNo,
       amount: p.amount,
       date: p.date,
       paymentMethod: p.paymentMethod,
@@ -402,6 +404,7 @@ async function getContractorAllPayments(req, res) {
       return {
         id: p._id,
         paymentId: p.paymentId,
+        receiptNo: p.receiptNo,
         amount: p.amount,
         date: p.date,
         paymentMethod: p.paymentMethod,
