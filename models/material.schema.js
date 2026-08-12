@@ -18,9 +18,11 @@ const materialSchema = new mongoose.Schema({
   },
   MaterialQuantity: {
     type: Number,
+    required: true
   },
 MaterialRate: {
     type: Number,
+    required: true
   },
   totalAmount: {
     type: Number,
@@ -43,6 +45,9 @@ MaterialRate: {
     default: 'online'
   },
   receiptPhoto: {
+    type: String
+  },
+  description: {
     type: String
   },
   date: {

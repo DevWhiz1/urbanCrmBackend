@@ -23,7 +23,7 @@ const projectContractSchema = new mongoose.Schema({
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     addedBy: { type: String }
   }],
-  startDate: { type: Date, required: true },
+  startDate: { type: Date },
   endDate: { type: Date },
 
   // Status

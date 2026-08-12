@@ -58,6 +58,14 @@ clientController.getAllClients = async (req, res) => {
       ];
     }
 
+    if (req.query.status) {
+      const User = require('../models/users.schema');
+      const matchingStatusUsers = await User.find({ status: req.query.status }).select('_id');
+      const statusUserIds = matchingStatusUsers.map(u => u._id);
+      
+      filter.user = { $in: statusUserIds };
+    }
+
     const { isPaginated, page, limit, skip } = getPaginationParams(req);
     let query;
 

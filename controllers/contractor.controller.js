@@ -67,6 +67,22 @@ contractorController.getAllContractor = async (req, res) => {
         { $unwind: { path: '$user', preserveNullAndEmptyArrays: true } }
       ];
 
+      if (req.query.contractorType) {
+        pipeline.push({
+          $match: {
+            contractorType: req.query.contractorType
+          }
+        });
+      }
+
+      if (req.query.status) {
+        pipeline.push({
+          $match: {
+            'user.status': req.query.status
+          }
+        });
+      }
+
       if (req.query.search) {
         const searchTerm = req.query.search;
         pipeline.push({
