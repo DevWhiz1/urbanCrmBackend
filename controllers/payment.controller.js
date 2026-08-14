@@ -14,6 +14,11 @@ paymentController.createPayment = async (req, res) => {
     const paymentData = req.body;
     paymentData.paymentId = await generateBusinessId('PAY');
     paymentData.receiptNo = await generateBusinessId('RCP');
+    
+    if (!paymentData.createdBy && req.user) {
+      paymentData.createdBy = req.user.userId;
+    }
+
     console.log("Payment Data:", paymentData);
     const newPayment = new Payment(paymentData);
     const savedPayment = await newPayment.save();
@@ -83,6 +88,11 @@ paymentController.addPaymentForProject = async (req, res) => {
     }
     paymentData.paymentId = await generateBusinessId('PAY');
     paymentData.receiptNo = await generateBusinessId('RCP');
+
+    if (!paymentData.createdBy && req.user) {
+      paymentData.createdBy = req.user.userId;
+    }
+
     const newPayment = new Payment(paymentData);
     const savedPayment = await newPayment.save();
     if (savedPayment.type === 'credit') {
@@ -412,10 +422,11 @@ paymentController.bulkImportPayments = async (req, res) => {
       return res.status(400).json({ message: "No payments provided for import." });
     }
 
-    const createdBy = req.user?.userId || req.user?.id || req.user?._id;
+    const createdBy = req.user?.userId;
 
     // Prepare payments data array
-    const paymentsToInsert = payments.map((p) => {
+    const paymentsToInsert = [];
+    for (const p of payments) {
       const parsedAmount = parseFloat(p.amount);
       if (isNaN(parsedAmount) || parsedAmount <= 0) {
         throw new Error(`Invalid payment amount: ${p.amount}`);
@@ -425,20 +436,23 @@ paymentController.bulkImportPayments = async (req, res) => {
       const rawDesc = p.workDescription || p.notes;
       const finalDesc = (rawDesc && rawDesc.trim() !== '') ? rawDesc.trim() : 'None';
 
-      return {
+      const paymentObj = {
         project,
         contractor,
         contract: contract || undefined,
         type: p.type || 'debit',
         date: isNaN(parsedDate.getTime()) ? new Date() : parsedDate,
         amount: parsedAmount,
-        paymentMethod: p.paymentMethod || 'cash',
+        paymentMethod: p.paymentMethod || 'online',
         workDescription: finalDesc,
         status: p.status || 'paid',
         notes: p.notes || undefined,
-        createdBy: createdBy || undefined
+        createdBy: createdBy || undefined,
+        paymentId: await generateBusinessId('PAY'),
+        receiptNo: await generateBusinessId('RCP')
       };
-    });
+      paymentsToInsert.push(paymentObj);
+    }
 
     const savedPayments = await Payment.insertMany(paymentsToInsert);
 
@@ -489,11 +503,12 @@ paymentController.bulkImportProjectPayments = async (req, res) => {
       return res.status(400).json({ message: "No payment records provided for import." });
     }
 
-    const createdBy = req.user?.userId || req.user?.id || req.user?._id;
+    const createdBy = req.user?.userId;
 
     let totalCreditAmount = 0;
 
-    const paymentsToInsert = payments.map((p) => {
+    const paymentsToInsert = [];
+    for (const p of payments) {
       const parsedAmount = parseFloat(p.amount);
       if (isNaN(parsedAmount) || parsedAmount <= 0) {
         throw new Error(`Invalid payment amount: ${p.amount}`);
@@ -508,18 +523,21 @@ paymentController.bulkImportProjectPayments = async (req, res) => {
         totalCreditAmount += parsedAmount;
       }
 
-      return {
+      const paymentObj = {
         project,
         type: paymentType,
         date: isNaN(parsedDate.getTime()) ? new Date() : parsedDate,
         amount: parsedAmount,
-        paymentMethod: p.paymentMethod || 'bank_transfer',
+        paymentMethod: p.paymentMethod || 'online',
         workDescription: finalDesc,
         status: p.status || 'paid',
         notes: p.notes || undefined,
-        createdBy: createdBy || undefined
+        createdBy: createdBy || undefined,
+        paymentId: await generateBusinessId('PAY'),
+        receiptNo: await generateBusinessId('RCP')
       };
-    });
+      paymentsToInsert.push(paymentObj);
+    }
 
     const savedPayments = await Payment.insertMany(paymentsToInsert);
 
@@ -595,7 +613,7 @@ paymentController.deletePayment = async (req, res) => {
 
     paymentToSoftDelete.isDeleted = true;
     paymentToSoftDelete.deletedAt = new Date();
-    paymentToSoftDelete.deletedBy = req.user ? (req.user.id || req.user._id) : null;
+    paymentToSoftDelete.deletedBy = req.user ? req.user.userId : null;
     await paymentToSoftDelete.save();
 
     // Revert totalPaymentReceived if it was a credit
