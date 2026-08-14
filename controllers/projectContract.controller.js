@@ -46,6 +46,24 @@ projectContractController.getAllProjectContracts = async (req, res) => {
       filter.project = req.query.project || req.query.projectId;
     }
 
+    if (req.query.search) {
+      const searchRegex = new RegExp(req.query.search, 'i');
+      const Project = require('../models/project.schema');
+      const Contractor = require('../models/contractorSchema');
+      
+      const matchingProjects = await Project.find({ name: searchRegex }).select('_id');
+      const projectIds = matchingProjects.map(p => p._id);
+      
+      const matchingContractors = await Contractor.find({ companyName: searchRegex }).select('_id');
+      const contractorIds = matchingContractors.map(c => c._id);
+      
+      filter.$or = [
+        { contractType: searchRegex },
+        { project: { $in: projectIds } },
+        { contractor: { $in: contractorIds } }
+      ];
+    }
+
     const { isPaginated, page, limit, skip } = getPaginationParams(req);
     const total = await ProjectContract.countDocuments(filter);
 

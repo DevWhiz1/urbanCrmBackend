@@ -50,7 +50,7 @@ const getExpenses = async (req, res) => {
       .populate('category', 'name')
       .populate('project', 'name')
       .populate('employee', 'fullName')
-      .populate('createdBy', 'name')
+      .populate('createdBy', 'userName')
       .sort({ createdAt: -1 });
 
     if (isPaginated && limit > 0) {
@@ -76,7 +76,7 @@ const getExpenseById = async (req, res) => {
       .populate('category', 'name')
       .populate('project', 'name')
       .populate('employee', 'fullName')
-      .populate('createdBy', 'name');
+      .populate('createdBy', 'userName');
     if (!expense) return res.status(404).json({ message: 'Expense not found' });
     res.status(200).json(expense);
   } catch (error) {
@@ -89,6 +89,10 @@ const createExpense = async (req, res) => {
     let payload = { ...req.body };
     if (!payload.project) delete payload.project;
     if (!payload.employee) delete payload.employee;
+
+    if (req.user) {
+      payload.createdBy = req.user.userId;
+    }
 
     const newExpense = new Expense(payload);
     await newExpense.save();
