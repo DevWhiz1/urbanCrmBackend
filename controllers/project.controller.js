@@ -407,6 +407,100 @@ projectController.addProjectAddition = async (req, res) => {
   }
 };
 
+// Update a price addition on a project
+projectController.updateProjectAddition = async (req, res) => {
+  try {
+    const { id, additionId } = req.params;
+    const { amount, reason } = req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(id) || !mongoose.Types.ObjectId.isValid(additionId)) {
+      return res.status(400).json({ status: 400, message: "Invalid project or addition ID" });
+    }
+
+    if (!amount || isNaN(parseFloat(amount)) || parseFloat(amount) <= 0) {
+      return res.status(400).json({ status: 400, message: "A valid positive amount is required" });
+    }
+
+    if (!reason || !reason.trim()) {
+      return res.status(400).json({ status: 400, message: "Reason for price addition is required" });
+    }
+
+    const project = await projectModel.findById(id);
+    if (!project) {
+      return res.status(404).json({ status: 404, message: "Project not found" });
+    }
+
+    const addition = project.additions.id(additionId);
+    if (!addition) {
+      return res.status(404).json({ status: 404, message: "Addition not found" });
+    }
+
+    const oldAmount = addition.amount;
+    const newAmount = parseFloat(amount);
+    const diff = newAmount - oldAmount;
+
+    addition.amount = newAmount;
+    addition.reason = reason.trim();
+
+    // Adjust totalCost by the difference
+    project.totalCost = (project.totalCost || 0) + diff;
+    project.updatedAt = Date.now();
+    await project.save();
+
+    const updatedProject = await projectModel.findById(id)
+      .populate({ path: 'customer', select: 'user paymentTerms bankDetails address phoneNumber isActive', populate: { path: 'user', select: 'userName email' } })
+      .populate({ path: 'contractors', select: 'user companyName contractorType paymentTerms bankDetails address phoneNumber', populate: { path: 'user', select: 'userName email' } });
+
+    res.status(200).json({
+      status: 200,
+      message: "Price addition updated successfully",
+      data: updatedProject
+    });
+  } catch (error) {
+    res.status(500).json({ status: 500, message: "Internal server error", error: error.message });
+  }
+};
+
+// Delete a price addition from a project
+projectController.deleteProjectAddition = async (req, res) => {
+  try {
+    const { id, additionId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id) || !mongoose.Types.ObjectId.isValid(additionId)) {
+      return res.status(400).json({ status: 400, message: "Invalid project or addition ID" });
+    }
+
+    const project = await projectModel.findById(id);
+    if (!project) {
+      return res.status(404).json({ status: 404, message: "Project not found" });
+    }
+
+    const addition = project.additions.id(additionId);
+    if (!addition) {
+      return res.status(404).json({ status: 404, message: "Addition not found" });
+    }
+
+    // Subtract the addition amount from totalCost
+    project.totalCost = Math.max(0, (project.totalCost || 0) - addition.amount);
+
+    project.additions.pull(additionId);
+    project.updatedAt = Date.now();
+    await project.save();
+
+    const updatedProject = await projectModel.findById(id)
+      .populate({ path: 'customer', select: 'user paymentTerms bankDetails address phoneNumber isActive', populate: { path: 'user', select: 'userName email' } })
+      .populate({ path: 'contractors', select: 'user companyName contractorType paymentTerms bankDetails address phoneNumber', populate: { path: 'user', select: 'userName email' } });
+
+    res.status(200).json({
+      status: 200,
+      message: "Price addition deleted successfully",
+      data: updatedProject
+    });
+  } catch (error) {
+    res.status(500).json({ status: 500, message: "Internal server error", error: error.message });
+  }
+};
+
 // Get contractors for a specific project
 projectController.getProjectContractors = async (req, res) => {
   try {

@@ -328,4 +328,96 @@ projectContractController.addContractAddition = async (req, res) => {
   }
 };
 
+// Update a price addition on a project contract
+projectContractController.updateContractAddition = async (req, res) => {
+  try {
+    const { id, additionId } = req.params;
+    const { amount, reason } = req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(id) || !mongoose.Types.ObjectId.isValid(additionId)) {
+      return res.status(400).json({ status: 400, message: "Invalid contract or addition ID" });
+    }
+
+    if (!amount || isNaN(parseFloat(amount)) || parseFloat(amount) <= 0) {
+      return res.status(400).json({ status: 400, message: "A valid positive amount is required" });
+    }
+
+    if (!reason || !reason.trim()) {
+      return res.status(400).json({ status: 400, message: "Reason for price addition is required" });
+    }
+
+    const contract = await ProjectContract.findById(id);
+    if (!contract) {
+      return res.status(404).json({ status: 404, message: "Project contract not found" });
+    }
+
+    const addition = contract.additions.id(additionId);
+    if (!addition) {
+      return res.status(404).json({ status: 404, message: "Addition not found" });
+    }
+
+    const oldAmount = addition.amount;
+    const newAmount = parseFloat(amount);
+    const diff = newAmount - oldAmount;
+
+    addition.amount = newAmount;
+    addition.reason = reason.trim();
+
+    // Adjust totalAmount by the difference
+    contract.totalAmount = (contract.totalAmount || 0) + diff;
+    await contract.save();
+
+    const updatedContract = await ProjectContract.findById(id)
+      .populate('project', 'name projectCode status location projectCategory projectType')
+      .populate('contractor', 'companyName contractorType user paymentTerms bankDetails address phoneNumber');
+
+    res.status(200).json({
+      status: 200,
+      message: "Price addition updated successfully",
+      data: updatedContract
+    });
+  } catch (error) {
+    res.status(500).json({ status: 500, message: "Internal server error", error: error.message });
+  }
+};
+
+// Delete a price addition from a project contract
+projectContractController.deleteContractAddition = async (req, res) => {
+  try {
+    const { id, additionId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id) || !mongoose.Types.ObjectId.isValid(additionId)) {
+      return res.status(400).json({ status: 400, message: "Invalid contract or addition ID" });
+    }
+
+    const contract = await ProjectContract.findById(id);
+    if (!contract) {
+      return res.status(404).json({ status: 404, message: "Project contract not found" });
+    }
+
+    const addition = contract.additions.id(additionId);
+    if (!addition) {
+      return res.status(404).json({ status: 404, message: "Addition not found" });
+    }
+
+    // Subtract the addition amount from totalAmount
+    contract.totalAmount = Math.max(0, (contract.totalAmount || 0) - addition.amount);
+
+    contract.additions.pull(additionId);
+    await contract.save();
+
+    const updatedContract = await ProjectContract.findById(id)
+      .populate('project', 'name projectCode status location projectCategory projectType')
+      .populate('contractor', 'companyName contractorType user paymentTerms bankDetails address phoneNumber');
+
+    res.status(200).json({
+      status: 200,
+      message: "Price addition deleted successfully",
+      data: updatedContract
+    });
+  } catch (error) {
+    res.status(500).json({ status: 500, message: "Internal server error", error: error.message });
+  }
+};
+
 module.exports = projectContractController;
