@@ -42,7 +42,8 @@ materialController.getAllMaterials = async (req, res) => {
   try {
     const materials = await Material.find({ isDeleted: { $ne: true } })
       .populate("project", "_id name")
-      .populate("createdBy", "userName");
+      .populate("createdBy", "userName")
+      .populate("supplier", "companyName");
     res.status(200).json({ data: materials });
   } catch (error) {
     res.status(500).json({
@@ -91,6 +92,7 @@ materialController.getMaterialsByProject = async (req, res) => {
 
     let query = Material.find(filter)
       .populate("createdBy", "userName")
+      .populate("supplier", "companyName")
       .sort(sortOptions);
 
     if (isPaginated && limit > 0) {

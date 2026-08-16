@@ -3,6 +3,7 @@ const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const emailService = require("../service/email.service.js");
 const { invalidateUser } = require("../utils/authCache");
+const { VALID_ROLES } = require("../utils/roles");
 
 const authController = {}
 
@@ -20,6 +21,10 @@ authController.register = async (req, res) => {
 
     if (!userName || !email || !password) {
       return res.status(400).json({ message: "All fields are required" });
+    }
+
+    if (role && !VALID_ROLES.includes(role)) {
+      return res.status(400).json({ message: `Invalid role. Must be one of: ${VALID_ROLES.join(', ')}` });
     }
 
     const existingUser = await User.findOne({ email });
