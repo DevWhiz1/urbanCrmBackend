@@ -16,6 +16,10 @@ const materialSchema = new mongoose.Schema({
   materialProvider: {
     type: String,
   },
+  supplier: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Supplier',
+  },
   MaterialQuantity: {
     type: Number,
     required: true

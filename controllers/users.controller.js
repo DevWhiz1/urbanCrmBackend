@@ -3,6 +3,7 @@ const bcrypt = require("bcrypt");
 const usersSchema = require("../models/users.schema");
 const { getPaginationParams, formatPaginatedResponse } = require("../utils/paginate");
 const { invalidateUserAuth, invalidateUser } = require("../utils/authCache");
+const { VALID_ROLES } = require("../utils/roles");
 
 const userController = {};
 
@@ -45,10 +46,22 @@ userController.updateUser = async (req, res) => {
     const body = req.body;
     const id = req.params.id;
 
+    // Validate role if being changed
+    if (body.role !== undefined && !VALID_ROLES.includes(body.role)) {
+      return res.status(400).json({ message: `Invalid role. Must be one of: ${VALID_ROLES.join(', ')}` });
+    }
+
     if (body.password) {
       body.plainPassword = body.password;
       body.password = await bcrypt.hash(body.password, 10);
     }
+
+    // Fetch old user to detect role changes
+    const oldUser = await usersSchema.findById(id).select('role email').lean();
+    if (!oldUser) {
+      return res.status(400).json({ message: "User not found" });
+    }
+    const oldRole = oldUser.role;
 
     const updateUser = await usersSchema.findByIdAndUpdate(
       id,
@@ -71,7 +84,26 @@ userController.updateUser = async (req, res) => {
       console.log('Employee sync skipped:', err.message);
     }
 
-    // Role change can leave a stale contractorId/clientId in scope cache —
+    // Role-change handling: soft-delete old profile record
+    if (body.role !== undefined && body.role !== oldRole) {
+      const softDelete = { isDeleted: true, deletedAt: new Date(), deletedBy: req.user ? (req.user.userId || req.user.id || req.user._id) : null };
+      try {
+        if (oldRole === 'Client') {
+          const Client = require("../models/client.schema");
+          await Client.findOneAndUpdate({ user: id, isDeleted: { $ne: true } }, softDelete);
+        } else if (oldRole === 'Contractor') {
+          const Contractor = require("../models/contractor.schema");
+          await Contractor.findOneAndUpdate({ user: id, isDeleted: { $ne: true } }, softDelete);
+        } else if (oldRole === 'Supplier') {
+          const Supplier = require("../models/supplier.schema");
+          await Supplier.findOneAndUpdate({ user: id, isDeleted: { $ne: true } }, softDelete);
+        }
+      } catch (err) {
+        console.log('Old profile cleanup skipped:', err.message);
+      }
+    }
+
+    // Role change can leave a stale contractorId/clientId/supplierId in scope cache —
     // clear both. Status-only changes only need the auth cache.
     if (body.role !== undefined) {
       invalidateUser(id);
@@ -175,14 +207,16 @@ userController.deleteUser = async (req, res) => {
     userToSoftDelete.email = `${userToSoftDelete.email}_deleted_${Date.now()}`;
     await userToSoftDelete.save();
 
-    // Also soft-delete any associated Client, Contractor or Employee
+    // Also soft-delete any associated Client, Contractor, Supplier or Employee
     const Client = require("../models/client.schema");
     const Contractor = require("../models/contractor.schema");
+    const Supplier = require("../models/supplier.schema");
     const Employee = require("../models/employee.schema");
     const updateObj = { isDeleted: true, deletedAt: new Date(), deletedBy: req.user ? (req.user.id || req.user._id) : null };
     
     await Client.findOneAndUpdate({ user: id }, updateObj);
     await Contractor.findOneAndUpdate({ user: id }, updateObj);
+    await Supplier.findOneAndUpdate({ user: id }, updateObj);
     await Employee.findOneAndUpdate({ email: originalEmail }, { isDeleted: true, isActive: false, deletedAt: new Date() });
 
     // Invalidate both caches — user and all linked scope data is now gone
@@ -201,6 +235,10 @@ userController.createUser = async (req, res) => {
 
     if (!userName || !email || !password) {
       return res.status(400).json({ message: "userName, email and password are required" });
+    }
+
+    if (role && !VALID_ROLES.includes(role)) {
+      return res.status(400).json({ message: `Invalid role. Must be one of: ${VALID_ROLES.join(', ')}` });
     }
 
     const existingUser = await usersSchema.findOne({ email });

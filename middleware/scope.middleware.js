@@ -1,5 +1,6 @@
 const Contractor = require('../models/contractor.schema');
 const Client = require('../models/client.schema');
+const Supplier = require('../models/supplier.schema');
 const { userScopeCache, NO_SCOPE, TTL, cacheLog } = require('../utils/authCache');
 
 // ─── In-flight deduplication map ─────────────────────────────────────────────
@@ -8,7 +9,7 @@ const { userScopeCache, NO_SCOPE, TTL, cacheLog } = require('../utils/authCache'
 // request waits for the first DB promise to resolve instead of firing a duplicate query.
 const pendingScope = new Map();
 
-const isScopedRole = (role) => role === 'Contractor' || role === 'Client';
+const isScopedRole = (role) => role === 'Contractor' || role === 'Client' || role === 'Supplier';
 
 /**
  * Attach contractorId / clientId for portal-scoped roles.
@@ -63,6 +64,11 @@ const attachUserScope = async (req, res, next) => {
         req.clientId = cached.clientId;
         return next();
       }
+      if (role === 'Supplier' && cached.supplierId) {
+        cacheLog(`attachUserScope HIT  — user:${userId} (role:${role})`);
+        req.supplierId = cached.supplierId;
+        return next();
+      }
 
       // Stale entry from a different role — drop and recompute.
       userScopeCache.delete(userId);
@@ -81,6 +87,8 @@ const attachUserScope = async (req, res, next) => {
           req.contractorId = resolved.contractorId;
         } else if (role === 'Client' && resolved.clientId) {
           req.clientId = resolved.clientId;
+        } else if (role === 'Supplier' && resolved.supplierId) {
+          req.supplierId = resolved.supplierId;
         }
       }
       return next();
@@ -108,6 +116,15 @@ const attachUserScope = async (req, res, next) => {
         } else {
           userScopeCache.set(userId, NO_SCOPE, { ttl: TTL.SCOPE_NEGATIVE });
           cacheLog(`attachUserScope NEGATIVE CACHED — user:${userId} (no Client record)`);
+        }
+      } else if (role === 'Supplier') {
+        const supplier = await Supplier.findOne({ user: userId, isDeleted: { $ne: true } });
+        if (supplier) {
+          req.supplierId = supplier._id;
+          userScopeCache.set(userId, { supplierId: supplier._id });
+        } else {
+          userScopeCache.set(userId, NO_SCOPE, { ttl: TTL.SCOPE_NEGATIVE });
+          cacheLog(`attachUserScope NEGATIVE CACHED — user:${userId} (no Supplier record)`);
         }
       }
     } finally {
