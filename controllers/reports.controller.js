@@ -140,7 +140,8 @@ reportsController.getProjectReports = async (req, res) => {
       },
       {
         $addFields: {
-          netVolume: { $subtract: ["$totalCredit", "$totalExpenses"] }
+          netVolume: { $subtract: ["$totalCredit", "$totalExpenses"] },
+          expectedProfit: { $subtract: [{ $ifNull: ["$totalCost", 0] }, "$totalExpenses"] }
         }
       },
       // Remove bulky arrays to save memory and network bandwidth
@@ -171,7 +172,8 @@ reportsController.getProjectReports = async (req, res) => {
                 contractorCosts: { $sum: "$contractorCosts" },
                 otherExpenses: { $sum: "$otherExpenses" },
                 pendingAmount: { $sum: "$pendingAmount" },
-                netVolume: { $sum: "$netVolume" }
+                netVolume: { $sum: "$netVolume" },
+                expectedProfit: { $sum: "$expectedProfit" }
               }
             }
           ],
@@ -227,7 +229,8 @@ reportsController.getProjectReports = async (req, res) => {
           contractorCosts: totals.contractorCosts || 0,
           otherExpenses: totals.otherExpenses || 0,
           pendingAmount: totals.pendingAmount || 0,
-          netVolume: totals.netVolume || 0
+          netVolume: totals.netVolume || 0,
+          expectedProfit: totals.expectedProfit || 0
         },
         projects,
         pagination: {
