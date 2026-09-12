@@ -37,6 +37,7 @@ const expenseRoute = require('./routes/expense.route');
 const uploadRoute = require('./routes/upload.route');
 const portalRoute = require('./routes/portal.route');
 const supplierRoute = require('./routes/supplier.route');
+const emailRoute = require('./routes/email.route');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
@@ -131,6 +132,7 @@ app.use('/api/expense', expenseRoute);
 app.use('/api/upload', uploadRoute);
 app.use('/api/portal', portalRoute);
 app.use('/api/supplier', supplierRoute);
+app.use('/api/email', emailRoute);
 
 // Start Server
 app.listen(PORT, () => {

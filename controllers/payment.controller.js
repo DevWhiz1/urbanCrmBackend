@@ -640,7 +640,11 @@ paymentController.deletePayment = async (req, res) => {
 paymentController.getPaymentDetailById = async (req, res) => {
   try {
     const payment = await Payment.findById(req.params.id)
-      .populate('contractor', 'companyName')
+      .populate({
+        path: 'contractor',
+        select: 'companyName user',
+        populate: { path: 'user', select: 'userName email' }
+      })
       .populate('contract', 'contractType')
       .populate({
         path: 'project',
@@ -650,7 +654,7 @@ paymentController.getPaymentDetailById = async (req, res) => {
           select: 'user',
           populate: {
             path: 'user',
-            select: 'userName'
+            select: 'userName email'
           }
         }
       })
@@ -673,7 +677,7 @@ paymentController.getStatementData = async (req, res) => {
 
     const project = await Project.findById(projectId).populate({
       path: 'customer',
-      populate: { path: 'user', select: 'userName' }
+      populate: { path: 'user', select: 'userName email' }
     });
 
     if (!project) {
@@ -693,6 +697,7 @@ paymentController.getStatementData = async (req, res) => {
     // Common Summary Data
     result.summary.project = project.name;
     result.summary.client = project.customer?.user?.userName || 'N/A';
+    result.summary.clientEmail = project.customer?.user?.email || '';
     result.summary.projectCost = project.totalCost || 0;
 
     if (statementType === 'client') {
@@ -714,9 +719,10 @@ paymentController.getStatementData = async (req, res) => {
       if (!contractorId) return res.status(400).json({ message: 'Contractor ID is required' });
 
       const contract = await ProjectContract.findOne({ project: projectId, contractor: contractorId, isDeleted: { $ne: true } })
-        .populate({ path: 'contractor', populate: { path: 'user', select: 'userName' } });
+        .populate({ path: 'contractor', populate: { path: 'user', select: 'userName email' } });
       
       result.summary.contractor = contract?.contractor?.user?.userName || contract?.contractor?.companyName || 'N/A';
+      result.summary.contractorEmail = contract?.contractor?.user?.email || '';
       result.summary.contractAmount = contract?.totalAmount || 0;
 
       const query = { project: projectId, contractor: contractorId, type: 'debit', isDeleted: { $ne: true } };

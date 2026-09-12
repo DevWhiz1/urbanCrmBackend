@@ -1,36 +1,65 @@
-// const nodemailer = require('nodemailer');
+const nodemailer = require('nodemailer');
+const EmailLog = require('../models/emailLog.schema');
 
-// const transporter = nodemailer.createTransport({
-//   host: 'smtp.zoho.com',
-//   port: 465,
-//   secure: true,
-//   auth: {
-//     user: '',
-//     pass: '',
-//   },
-// });
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST,
+  port: process.env.SMTP_PORT,
+  secure: process.env.SMTP_PORT === '465', // true for 465, false for other ports
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS,
+  },
+});
 
-// const sendMail = async (to, subject, text) => {
-//   const mailOptions = {
-//     from: '',
-//     to,
-//     subject,
-//     text,
-//   };
+const sendMail = async (to, subject, text, html = null, attachments = []) => {
+  const senderName = "Accounts - Urban Design Construction";
+  const fromAddress = process.env.SMTP_FROM || process.env.SMTP_USER;
+  
+  const mailOptions = {
+    from: `"${senderName}" <${fromAddress}>`,
+    to,
+    subject,
+    text,
+  };
 
-//   try {
-//     await transporter.sendMail(mailOptions);
-//     return { message: 'Email sent successfully' };
-//   } catch (error) {
-//     console.error('Error in sending mail', error);
-//     throw new Error(error.message);
-//   }
-// };
+  if (html) {
+    mailOptions.html = html;
+  }
 
-// module.exports = { sendMail };
-const sendMail = async (to, subject, text) => {
-  console.log(`✅ Mock email sent to: ${to}, Subject: ${subject}, Message: ${text}`);
-  return { message: 'Email sent successfully (Mock)' }; // ✅ Always return success
+  if (attachments && attachments.length > 0) {
+    mailOptions.attachments = attachments;
+  }
+
+  try {
+    const info = await transporter.sendMail(mailOptions);
+    console.log(`✅ Email sent to: ${to}, Message ID: ${info.messageId}`);
+    
+    // Log to Database
+    await EmailLog.create({
+      to,
+      subject,
+      text,
+      html,
+      messageId: info.messageId,
+      status: 'Sent'
+    });
+
+    return { success: true, message: 'Email sent successfully', messageId: info.messageId };
+  } catch (error) {
+    console.error('❌ Error in sending mail', error);
+    
+    // Log failure to Database
+    await EmailLog.create({
+      to,
+      subject,
+      text,
+      html,
+      status: 'Failed',
+      error: error.message
+    });
+
+    throw new Error('Failed to send email: ' + error.message);
+  }
 };
 
 module.exports = { sendMail };
